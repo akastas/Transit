@@ -1225,7 +1225,7 @@ body {
   display: inline-block;
   vertical-align: middle;
   animation: tilt-umbrella 2s ease-in-out infinite alternate;
-  transform-origin: 32px 40px;
+  transform-origin: 50% 70%;
 }
 @keyframes tilt-umbrella {
   from { transform: rotate(-8deg); }
