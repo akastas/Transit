@@ -584,3 +584,78 @@ body {
     align-items: center;
   }
 }
+
+@media (max-width: 480px) {
+  .dashboard-container {
+    padding: 0.5rem;
+    gap: 1rem;
+  }
+
+  .dashboard-header {
+    padding: 1rem;
+    gap: 0.8rem;
+  }
+
+  .header-left h1 {
+    font-size: 1.6rem;
+  }
+
+  .live-clock {
+    font-size: 2rem;
+  }
+
+  .stop-card {
+    padding: 1rem;
+    border-radius: 16px;
+  }
+
+  .stop-name {
+    font-size: 1.3rem;
+  }
+
+  .departure-row {
+    padding: 8px 10px;
+  }
+
+  .line-identifier {
+    min-width: 38px;
+    height: 38px;
+    font-size: 1rem;
+    border-radius: 8px;
+  }
+
+  .route-details {
+    margin-left: 10px;
+  }
+
+  .route-direction {
+    font-size: 0.95rem;
+  }
+
+  .route-time-scheduled {
+    font-size: 0.75rem;
+  }
+
+  .arrival-countdown {
+    padding-left: 6px;
+    gap: 4px;
+  }
+
+  .arrival-minutes {
+    font-size: 1.6rem;
+  }
+
+  .arrival-unit {
+    font-size: 0.75rem;
+  }
+
+  .toggle-direction-btn {
+    padding: 3px 8px;
+    font-size: 0.65rem;
+  }
+
+  .stop-badge {
+    padding: 3px 8px;
+    font-size: 0.65rem;
+  }
+}
