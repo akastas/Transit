@@ -178,7 +178,7 @@ function renderLensView(stations) {
     const isLive = dep.status === 'realtime';
     const timeClass = isLive ? 'realtime-depart' : 'scheduled-depart';
     const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
-    const badgeLabel = isLive ? 'LIVE' : 'ORARIO';
+    const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
     
     const lineStyle = dep.lineColor 
       ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
@@ -310,7 +310,7 @@ function renderBoardView(stations) {
             // Neon green styling for live GPS data, muted amber/gray for timetable estimate
             const timeClass = isLive ? 'realtime-depart' : 'scheduled-depart';
             const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
-            const badgeLabel = isLive ? 'LIVE' : 'ORARIO';
+            const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
             
             // Custom line styling if provided by API, otherwise default grey
             const lineStyle = dep.lineColor 
@@ -506,7 +506,7 @@ function renderMetroView(stations) {
     metroNextMins.style.textShadow = '0 0 15px rgba(255, 170, 0, 0.4)';
   }
   
-  const statusLabel = nextIsLive ? 'LIVE' : 'ORARIO';
+  const statusLabel = nextIsLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
   metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span>`;
 
   // Subsequent trains list (Index 1 onwards)
@@ -522,7 +522,7 @@ function renderMetroView(stations) {
       const isLive = dep.status === 'realtime';
       const timeColor = isLive ? '#00ff9d' : '#ffaa00';
       const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
-      const badgeLabel = isLive ? 'LIVE' : 'ORARIO';
+      const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
       
       return `
         <div class="metro-row">
@@ -600,18 +600,22 @@ async function fetchWeather() {
       currentIdx = 0;
     }
 
-    // WMO Weather code mapper
+    // WMO Weather code mapper with animated SVGs
     const getWeatherIcon = (code) => {
-      if (code === 0) return '☀️'; // Clear
-      if (code >= 1 && code <= 3) return '⛅'; // Part cloudy
-      if (code === 45 || code === 48) return '🌫️'; // Fog
-      if (code >= 51 && code <= 57) return '🌧️'; // Drizzle
-      if (code >= 61 && code <= 67) return '🌧️'; // Rain
-      if (code >= 71 && code <= 77) return '❄️'; // Snow
-      if (code >= 80 && code <= 82) return '🌧️'; // Showers
-      if (code >= 85 && code <= 86) return '❄️'; // Snow showers
-      if (code >= 95 && code <= 99) return '⛈️'; // Thunderstorm
-      return '☁️';
+      if (code === 0) { // Clear
+        return `<svg class="weather-svg sunny-icon" viewBox="0 0 64 64"><circle cx="32" cy="32" r="12" fill="#ffd000" /><g stroke="#ffd000" stroke-width="3" stroke-linecap="round"><line x1="32" y1="8" x2="32" y2="14" /><line x1="32" y1="50" x2="32" y2="56" /><line x1="8" y1="32" x2="14" y2="32" /><line x1="50" y1="32" x2="56" y2="32" /><line x1="15" y1="15" x2="20" y2="20" /><line x1="44" y1="44" x2="49" y2="49" /><line x1="15" y1="49" x2="20" y2="44" /><line x1="44" y1="20" x2="49" y2="15" /></g></svg>`;
+      }
+      if (code >= 1 && code <= 3) { // Partly cloudy
+        return `<svg class="weather-svg cloudy-icon" viewBox="0 0 64 64"><circle class="sun-circle" cx="24" cy="24" r="10" fill="#ffd000" /><path class="cloud-path" d="M46 38a8 8 0 0 1-5 13H22a10 10 0 0 1-1-20 10 10 0 0 1 18-3 8 8 0 0 1 7 10z" fill="#a0a0c0" opacity="0.9" /></svg>`;
+      }
+      if ((code >= 51 && code <= 57) || (code >= 61 && code <= 67) || (code >= 80 && code <= 82)) { // Rain
+        return `<svg class="weather-svg rain-icon" viewBox="0 0 64 64"><path d="M46 32a8 8 0 0 1-5 13H22a10 10 0 0 1-1-20 10 10 0 0 1 18-3 8 8 0 0 1 7 10z" fill="#607d8b" /><g stroke="#40c4ff" stroke-width="3" stroke-linecap="round" fill="none"><line class="rain-drop drop-1" x1="24" y1="46" x2="22" y2="52" /><line class="rain-drop drop-2" x1="32" y1="46" x2="30" y2="52" /><line class="rain-drop drop-3" x1="40" y1="46" x2="38" y2="52" /></g></svg>`;
+      }
+      if (code >= 95 && code <= 99) { // Thunderstorm
+        return `<svg class="weather-svg thunder-icon" viewBox="0 0 64 64"><path d="M46 32a8 8 0 0 1-5 13H22a10 10 0 0 1-1-20 10 10 0 0 1 18-3 8 8 0 0 1 7 10z" fill="#455a64" /><polygon class="lightning" points="32,44 26,52 31,52 28,60 38,50 33,50" fill="#ffd000" /><g stroke="#40c4ff" stroke-width="3" stroke-linecap="round" fill="none"><line class="rain-drop drop-1" x1="22" y1="46" x2="20" y2="52" /><line class="rain-drop drop-2" x1="42" y1="46" x2="40" y2="52" /></g></svg>`;
+      }
+      // Fog, Snow, Default Cloud
+      return `<svg class="weather-svg cloudy-icon" viewBox="0 0 64 64"><path class="cloud-path" d="M46 38a8 8 0 0 1-5 13H22a10 10 0 0 1-1-20 10 10 0 0 1 18-3 8 8 0 0 1 7 10z" fill="#b0bec5" /></svg>`;
     };
 
     const currentCode = data.hourly.weathercode[currentIdx] ?? 0;
@@ -636,7 +640,7 @@ async function fetchWeather() {
     let html = `<span>Roma: ${currentIcon} <span class="temp">${currentTemp}°C</span></span>`;
     
     if (isRainPredicted) {
-      html += `<span class="rain-alert">☔ Porta l'ombrello!</span>`;
+      html += `<span class="rain-alert"><svg class="umbrella-svg" viewBox="0 0 64 64"><path d="M32 30v14a4 4 0 0 0 8 0" stroke="#ff4a4a" stroke-width="4" fill="none" stroke-linecap="round" /><path d="M12 30c0-11 9-20 20-20s20 9 20 20H12z" fill="#ff4a4a" /><circle cx="22" cy="6" r="2" fill="#40c4ff" /><circle cx="32" cy="4" r="2" fill="#40c4ff" /><circle cx="42" cy="6" r="2" fill="#40c4ff" /></svg> Porta l'ombrello!</span>`;
     }
 
     weatherWidget.innerHTML = html;
