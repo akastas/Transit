@@ -1,0 +1,586 @@
+/* 
+ * style.css - Rome Public Transit Dashboard Style System
+ * 
+ * Implements a premium, high-contrast dark theme with:
+ * - Fluid typography (designed for viewing from across a room)
+ * - Glassmorphism card structures
+ * - CSS custom variables for easy styling
+ * - Distinct live vs scheduled color cues
+ * - CSS animation loops for a live interface feel
+ */
+
+:root {
+  /* Colors */
+  --bg-base: #0a0a0f;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0ba;
+  --text-muted: #666680;
+  
+  /* Status Colors */
+  --color-realtime: #00ff66; /* Vibrant neon green for real-time */
+  --color-realtime-glow: rgba(0, 255, 102, 0.4);
+  --color-scheduled: #ffaa00; /* Amber/orange for estimated schedule */
+  --color-scheduled-glow: rgba(255, 170, 0, 0.2);
+  --color-error: #ff4a4a;
+  
+  /* Card Theme */
+  --card-bg: rgba(20, 20, 28, 0.6);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --card-glow: rgba(0, 0, 0, 0.5);
+  
+  /* Fonts */
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Base resets & layout */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Ambient glow blobs in the background */
+.bg-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.bg-glow-1 {
+  width: 400px;
+  height: 400px;
+  background: #3a00ff;
+  top: 10%;
+  left: -100px;
+  animation: float 20s ease-in-out infinite alternate;
+}
+
+.bg-glow-2 {
+  width: 500px;
+  height: 500px;
+  background: #aa00ff;
+  bottom: 10%;
+  right: -100px;
+  animation: float 25s ease-in-out infinite alternate-reverse;
+}
+
+.bg-glow-3 {
+  width: 300px;
+  height: 300px;
+  background: #00ffcc;
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0.07;
+}
+
+@keyframes float {
+  0% { transform: translateY(0) scale(1); }
+  100% { transform: translateY(50px) scale(1.1); }
+}
+
+/* Dashboard Container */
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  gap: 1.5rem;
+}
+
+/* Header Styles */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: rgba(15, 15, 23, 0.5);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px var(--card-glow);
+}
+
+.header-left h1 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #ffffff 30%, #a0a0ba 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.header-left .subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.header-center {
+  text-align: center;
+}
+
+.live-clock {
+  font-family: var(--font-mono);
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+.live-date {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  margin-top: 2px;
+}
+
+.header-right {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Status Panel & Auto-Refresh */
+.status-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.update-info {
+  font-size: 0.85rem;
+  display: flex;
+  gap: 6px;
+}
+
+.update-info .label {
+  color: var(--text-muted);
+}
+
+.update-info .value {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.countdown-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.countdown-bar-bg {
+  width: 180px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.countdown-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #3a00ff, #00ffcc);
+  border-radius: 2px;
+  transition: width 1s linear;
+}
+
+.countdown-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Dashboard 4-Stop Grid Layout */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 1.5rem;
+  flex-grow: 1;
+}
+
+/* Stop Card Styling (Glassmorphism) */
+.stop-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 1.5rem;
+  box-shadow: 0 16px 40px var(--card-glow);
+  transition: transform 0.3s ease, border-color 0.3s ease;
+}
+
+.stop-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.stop-card.error-card {
+  border-color: rgba(255, 74, 74, 0.3);
+  background: rgba(40, 20, 20, 0.4);
+}
+
+/* Card Header */
+.stop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stop-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stop-name {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.stop-code {
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.stop-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.stop-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-direction-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggle-direction-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-direction-btn:active {
+  transform: scale(0.95);
+}
+
+.toggle-direction-btn .btn-icon {
+  font-size: 0.8rem;
+  display: inline-block;
+  transition: transform 0.4s ease;
+}
+
+.toggle-direction-btn:hover .btn-icon {
+  transform: rotate(180deg);
+}
+
+/* Departures list structure */
+.departures-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-grow: 1;
+  justify-content: flex-start;
+  max-height: 380px; /* Prevents cards from expanding excessively on wall screens */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Elegant custom scrollbar for departures list */
+.departures-list::-webkit-scrollbar {
+  width: 5px;
+}
+.departures-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.01);
+  border-radius: 4px;
+}
+.departures-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+.departures-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Row Item */
+.departure-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.departure-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Line badge design */
+.line-identifier {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 48px;
+  padding: 4px;
+  border-radius: 10px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  background: #333344; /* Fallback line color */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Route details */
+.route-details {
+  flex-grow: 1;
+  margin-left: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.route-direction {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-time-scheduled {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Arrival / Minutes Remaining column */
+.arrival-countdown {
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+}
+
+.arrival-minutes {
+  font-family: var(--font-mono);
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.arrival-unit {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: lowercase;
+}
+
+/* Trustworthiness Badges & Glow Cues */
+.status-badge {
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Real-Time Styling (Live GPS Feed is up) */
+.realtime-depart {
+  color: var(--color-realtime);
+  text-shadow: 0 0 12px var(--color-realtime-glow);
+}
+.realtime-badge {
+  background: rgba(0, 255, 102, 0.12);
+  color: var(--color-realtime);
+  border: 1px solid rgba(0, 255, 102, 0.2);
+}
+
+/* Scheduled/Estimates Styling (Live GPS Feed drops) */
+.scheduled-depart {
+  color: var(--color-scheduled);
+  text-shadow: 0 0 8px var(--color-scheduled-glow);
+}
+.scheduled-badge {
+  background: rgba(255, 170, 0, 0.1);
+  color: var(--color-scheduled);
+  border: 1px solid rgba(255, 170, 0, 0.25);
+}
+
+/* Standard alerts & empty state cards */
+.no-departures {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--text-muted);
+  gap: 10px;
+  flex-grow: 1;
+}
+
+.no-departures-icon {
+  font-size: 2rem;
+  opacity: 0.4;
+}
+
+.error-message {
+  color: var(--color-error);
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-grow: 1;
+}
+
+/* Footer Styling */
+.dashboard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.dot-active {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--color-realtime);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--color-realtime);
+  margin-right: 4px;
+}
+
+/* SKELETON / LOADING EFFECTS */
+.skeleton .stop-name {
+  width: 180px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.skeleton .stop-code {
+  width: 80px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.skeleton-row {
+  height: 68px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.02) 25%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.02) 75%);
+  background-size: 200% 100%;
+  animation: loading-pulse 1.5s infinite;
+  border-radius: 12px;
+}
+
+@keyframes loading-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* RESPONSIVE LAYOUT BREAKPOINTS */
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+  
+  .header-left h1 {
+    font-size: 1.8rem;
+  }
+  
+  .live-clock {
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 650px) {
+  .dashboard-header {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+  
+  .header-right {
+    justify-content: center;
+  }
+  
+  .status-panel {
+    align-items: center;
+  }
+}

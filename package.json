@@ -1,0 +1,25 @@
+{
+  "name": "rome-transit-dashboard",
+  "version": "1.0.0",
+  "description": "A lightweight, robust, self-hosted public transit dashboard for Rome using Navitia.io API.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "transit",
+    "dashboard",
+    "rome",
+    "navitia",
+    "atac"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0"
+  }
+}
