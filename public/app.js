@@ -441,6 +441,13 @@ function startRefreshTimer() {
 
   countdownTime = CONFIG.REFRESH_INTERVAL_SEC;
   
+  // Initial update
+  if (window.innerWidth <= 480) {
+    dom.countdownText.textContent = `(${countdownTime}s)`;
+  } else {
+    dom.countdownText.textContent = `Prossimo aggiornamento in ${countdownTime}s`;
+  }
+  
   // Ticking function run every second
   countdownTimerId = setInterval(() => {
     countdownTime--;
@@ -451,7 +458,11 @@ function startRefreshTimer() {
     }
     
     // Update countdown text
-    dom.countdownText.textContent = `Prossimo aggiornamento in ${countdownTime}s`;
+    if (window.innerWidth <= 480) {
+      dom.countdownText.textContent = `(${countdownTime}s)`;
+    } else {
+      dom.countdownText.textContent = `Prossimo aggiornamento in ${countdownTime}s`;
+    }
     
     // Calculate percentage width for shrinking bar
     const percentage = (countdownTime / CONFIG.REFRESH_INTERVAL_SEC) * 100;
