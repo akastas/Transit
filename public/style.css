@@ -40,12 +40,17 @@
   padding: 0;
 }
 
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-base);
   color: var(--text-primary);
   min-height: 100vh;
-  overflow-x: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -54,7 +59,7 @@ body {
 
 /* Ambient glow blobs in the background */
 .bg-glow {
-  position: absolute;
+  position: fixed;
   border-radius: 50%;
   filter: blur(120px);
   z-index: -1;
