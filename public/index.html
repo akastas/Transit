@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -74,9 +74,16 @@
       <div id="lens-view" class="tab-view active">
         <div class="lens-card">
           <div class="lens-header">
-            <div class="lens-title-group">
-              <h2>Commute Radar</h2>
-              <span class="lens-badge">Filtro Linee</span>
+            <div class="lens-title-group" style="justify-content: space-between; width: 100%; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <h2>Commute Radar</h2>
+                <span class="lens-badge">Filtro Linee</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="lens-show-scheduled" onchange="toggleScheduledLens()">
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Programmati</span>
+              </label>
             </div>
             <p class="lens-subheader">Priorità arrivi per linee preferite (81, 85, 87, 360) e tutte le partenze da Porta S. Giovanni/Carlo Felice</p>
           </div>
@@ -185,6 +192,6 @@
   </div>
 
   <!-- Javascript Logic -->
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

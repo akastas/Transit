@@ -134,6 +134,9 @@ function renderLensView(stations) {
     return;
   }
 
+  const checkbox = document.getElementById('lens-show-scheduled');
+  const showScheduled = checkbox ? checkbox.checked : false;
+
   const importantLines = ['81', '85', '87', '360'];
   let aggregatedDepartures = [];
 
@@ -147,6 +150,11 @@ function renderLensView(stations) {
       const isCarloFeliceHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
 
       if (isImportantLine || isCarloFeliceHub) {
+        // Filter out scheduled departures if toggle is unchecked
+        if (!showScheduled && dep.status !== 'realtime') {
+          return;
+        }
+
         aggregatedDepartures.push({
           ...dep,
           stationName: station.stopName,
@@ -805,6 +813,11 @@ function getPartingBusSvg() {
   `;
 }
 
+function toggleScheduledLens() {
+  if (lastTransitData) {
+    renderLensView(lastTransitData);
+  }
+}
 
 // Kickstart dashboard systems on page load
 window.addEventListener('DOMContentLoaded', () => {
