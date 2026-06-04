@@ -1264,4 +1264,77 @@ body {
   80%, 100% { transform: scale(2.2); opacity: 0; }
 }
 
+/* ==================================================
+   DYNAMIC COUNTDOWN ANIMATIONS (RUSHED & PARTING)
+   ================================================== */
+.rushed-svg {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: #ff4a4a; /* Red for rushing warning */
+}
+
+.runner {
+  animation: run-bob 0.25s infinite linear;
+  transform-origin: 12px 12px;
+}
+
+@keyframes run-bob {
+  0% { transform: translateY(0) rotate(15deg); }
+  50% { transform: translateY(-1.5px) rotate(18deg); }
+  100% { transform: translateY(0) rotate(15deg); }
+}
+
+.speed-line {
+  animation: speed-drift 0.4s infinite linear;
+}
+
+@keyframes speed-drift {
+  0% { transform: translateX(0); opacity: 0; }
+  30% { opacity: 0.8; }
+  100% { transform: translateX(-4px); opacity: 0; }
+}
+
+.speed-line.line-1 { animation-delay: 0s; }
+.speed-line.line-2 { animation-delay: 0.15s; }
+.speed-line.line-3 { animation-delay: 0.08s; }
+
+.parting-svg {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: var(--color-realtime); /* Green or active theme color */
+}
+
+.bus-drive {
+  animation: drive-bounce 0.15s infinite linear;
+}
+
+@keyframes drive-bounce {
+  0% { transform: translateY(0); }
+  25% { transform: translateY(-0.6px) translateX(0.3px); }
+  50% { transform: translateY(0); }
+  75% { transform: translateY(-0.6px) translateX(-0.3px); }
+  100% { transform: translateY(0); }
+}
+
+.exhaust {
+  transform-origin: 3px 15px;
+  animation: puff-smoke 0.8s infinite ease-out;
+}
+
+@keyframes puff-smoke {
+  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  30% { opacity: 0.9; }
+  100% { transform: translate(-4px, -2px) scale(1.4); opacity: 0; }
+}
+
+.exhaust-1 { animation-delay: 0s; }
+.exhaust-2 { animation-delay: 0.4s; }
+
+
 

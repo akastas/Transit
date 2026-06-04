@@ -184,6 +184,13 @@ function renderLensView(stations) {
       ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
       : '';
 
+    let animationIndicator = '';
+    if (dep.minutesRemaining === 1) {
+      animationIndicator = getRunnerSvg();
+    } else if (dep.minutesRemaining === 0) {
+      animationIndicator = getPartingBusSvg();
+    }
+
     row.innerHTML = `
       <div class="line-identifier" style="${lineStyle}">
         ${dep.line}
@@ -202,7 +209,7 @@ function renderLensView(stations) {
         <span class="arrival-minutes ${timeClass}">
           ${dep.minutesRemaining}
         </span>
-        <span class="arrival-unit">min</span>
+        <span class="arrival-unit">min${animationIndicator}</span>
       </div>
     `;
     dom.lensList.appendChild(row);
@@ -317,6 +324,13 @@ function renderBoardView(stations) {
               ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
               : '';
 
+            let animationIndicator = '';
+            if (dep.minutesRemaining === 1) {
+              animationIndicator = getRunnerSvg();
+            } else if (dep.minutesRemaining === 0) {
+              animationIndicator = getPartingBusSvg();
+            }
+
             return `
               <div class="departure-row">
                 <div class="line-identifier" style="${lineStyle}">
@@ -333,7 +347,7 @@ function renderBoardView(stations) {
                   <span class="arrival-minutes ${timeClass}">
                     ${dep.minutesRemaining}
                   </span>
-                  <span class="arrival-unit">min</span>
+                  <span class="arrival-unit">min${animationIndicator}</span>
                 </div>
               </div>
             `;
@@ -509,6 +523,18 @@ function renderMetroView(stations) {
   const statusLabel = nextIsLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
   metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span>`;
 
+  // Update next train unit SVG if rushed or parting
+  const metroNextUnit = document.querySelector('.metro-next-unit');
+  if (metroNextUnit) {
+    if (nextTrain.minutesRemaining === 1) {
+      metroNextUnit.innerHTML = `min ${getRunnerSvg()}`;
+    } else if (nextTrain.minutesRemaining === 0) {
+      metroNextUnit.innerHTML = `min ${getPartingBusSvg()}`;
+    } else {
+      metroNextUnit.textContent = 'min';
+    }
+  }
+
   // Subsequent trains list (Index 1 onwards)
   const subsequent = departures.slice(1);
   if (subsequent.length === 0) {
@@ -524,6 +550,13 @@ function renderMetroView(stations) {
       const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
       const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
       
+      let animationIndicator = '';
+      if (dep.minutesRemaining === 1) {
+        animationIndicator = getRunnerSvg();
+      } else if (dep.minutesRemaining === 0) {
+        animationIndicator = getPartingBusSvg();
+      }
+
       return `
         <div class="metro-row">
           <span class="metro-row-dest">${dep.direction}</span>
@@ -533,7 +566,7 @@ function renderMetroView(stations) {
               <span class="status-badge ${badgeClass}" style="margin-left: 6px; font-size: 0.6rem;">${badgeLabel}</span>
             </span>
             <span class="metro-row-countdown" style="color: ${timeColor};">
-              ${dep.minutesRemaining} min
+              ${dep.minutesRemaining} min${animationIndicator}
             </span>
           </div>
         </div>
@@ -649,6 +682,39 @@ async function fetchWeather() {
     weatherWidget.innerHTML = `<span style="font-size: 0.75rem; opacity: 0.6;">Meteo non disponibile</span>`;
   }
 }
+
+/**
+ * Dynamic SVG animations helper functions
+ */
+function getRunnerSvg() {
+  return `
+    <svg class="rushed-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle cx="15" cy="5" r="2" fill="currentColor"/>
+      <path d="M14 7l-3 4M11 11l2 3 3 1M11 11l-3 1-1 4M13 8l3 1-1 3M13 8l-2-1-2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <line class="speed-line line-1" x1="5" y1="8" x2="2" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line class="speed-line line-2" x1="4" y1="12" x2="1" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <line class="speed-line line-3" x1="5" y1="16" x2="2" y2="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
+function getPartingBusSvg() {
+  return `
+    <svg class="parting-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle class="exhaust exhaust-1" cx="3" cy="15" r="1.2" fill="currentColor" stroke="none"/>
+      <circle class="exhaust exhaust-2" cx="1" cy="16" r="0.8" fill="currentColor" stroke="none"/>
+      <g class="bus-drive">
+        <rect x="5" y="6" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="2"/>
+        <rect x="14" y="8" width="4" height="3" fill="currentColor" stroke="none"/>
+        <rect x="9" y="8" width="4" height="3" fill="currentColor" stroke="none"/>
+        <circle cx="8" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+        <circle cx="16" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+        <path d="M19 11h1M19 12h2" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+      </g>
+    </svg>
+  `;
+}
+
 
 // Kickstart dashboard systems on page load
 window.addEventListener('DOMContentLoaded', () => {
