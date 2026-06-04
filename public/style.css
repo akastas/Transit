@@ -659,3 +659,222 @@ body {
     font-size: 0.65rem;
   }
 }
+
+/* ==================================================
+   TAB NAVIGATION STYLES
+   ================================================== */
+.tabs-navigation {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.5rem;
+  background: rgba(15, 15, 23, 0.4);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  max-width: 450px;
+  margin: 0 auto;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-btn.active {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.tab-btn-icon {
+  font-size: 1.1rem;
+}
+
+/* Tab View States */
+.tab-view {
+  display: none;
+  opacity: 0;
+}
+
+.tab-view.active {
+  display: block;
+  opacity: 1;
+  animation: tab-fade-in 0.35s ease-out forwards;
+}
+
+@keyframes tab-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==================================================
+   ATAC LENS VIEW STYLES
+   ================================================== */
+.lens-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 1.5rem;
+  box-shadow: 0 16px 40px var(--card-glow);
+  display: flex;
+  flex-direction: column;
+}
+
+.lens-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+
+.lens-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.lens-title-group h2 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #ffffff 40%, #a0a0ba 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.lens-badge {
+  background: rgba(58, 0, 255, 0.15);
+  border: 1px solid rgba(58, 0, 255, 0.3);
+  color: #cbb3ff;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.lens-subheader {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.lens-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* Elegant scrollbar for lens list */
+.lens-list::-webkit-scrollbar {
+  width: 6px;
+}
+.lens-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.01);
+  border-radius: 4px;
+}
+.lens-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+.lens-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Lens row representation */
+.lens-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 14px;
+  transition: all 0.2s ease;
+}
+
+.lens-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Target station indicator text */
+.route-station {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.route-station::before {
+  content: "•";
+  color: #3a00ff;
+  font-size: 1.2rem;
+  line-height: 0;
+}
+
+/* Mobile responsive fixes for Lens */
+@media (max-width: 480px) {
+  .tabs-navigation {
+    max-width: 100%;
+    gap: 0.5rem;
+  }
+  
+  .tab-btn {
+    padding: 6px 12px;
+    font-size: 0.9rem;
+  }
+  
+  .lens-card {
+    padding: 1rem;
+  }
+  
+  .lens-title-group h2 {
+    font-size: 1.4rem;
+  }
+  
+  .lens-subheader {
+    font-size: 0.8rem;
+  }
+  
+  .lens-row {
+    padding: 8px 12px;
+  }
+  
+  .route-station {
+    font-size: 0.75rem;
+  }
+}

@@ -53,76 +53,93 @@
       </div>
     </header>
 
-    <!-- Main Content Grid for 4 Stops -->
-    <main id="dashboard-grid" class="dashboard-grid">
-      <!-- Stop Card 1 (Placeholder, will be populated by JS) -->
-      <div class="stop-card skeleton" id="card-0">
-        <div class="stop-header">
-          <div class="stop-info">
-            <div class="skeleton-line title"></div>
-            <div class="skeleton-line sub"></div>
+    <!-- Tab Navigation Bar -->
+    <nav class="tabs-navigation">
+      <button id="tab-btn-lens" class="tab-btn active" onclick="switchTab('lens')">
+        <span class="tab-btn-icon">🎯</span> ATAC Lens
+      </button>
+      <button id="tab-btn-board" class="tab-btn" onclick="switchTab('board')">
+        <span class="tab-btn-icon">📊</span> Tabellone Stazioni
+      </button>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="dashboard-main">
+      
+      <!-- Tab 1: ATAC Lens View (Active by default) -->
+      <div id="lens-view" class="tab-view active">
+        <div class="lens-card">
+          <div class="lens-header">
+            <div class="lens-title-group">
+              <h2>Commute Radar</h2>
+              <span class="lens-badge">Filtro Linee</span>
+            </div>
+            <p class="lens-subheader">Priorità arrivi per linee preferite (81, 85, 87, 360) e tutte le partenze da Porta S. Giovanni/Carlo Felice</p>
           </div>
-        </div>
-        <div class="departures-list">
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
+          
+          <div id="lens-list" class="lens-list">
+            <!-- Dynamically populated by JS -->
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+            <div class="skeleton-row"></div>
+          </div>
         </div>
       </div>
 
-      <!-- Stop Card 2 -->
-      <div class="stop-card skeleton" id="card-1">
-        <div class="stop-header">
-          <div class="stop-info">
-            <div class="skeleton-line title"></div>
-            <div class="skeleton-line sub"></div>
+      <!-- Tab 2: Station Board View -->
+      <div id="board-view" class="tab-view">
+        <div id="dashboard-grid" class="dashboard-grid">
+          <!-- Dynamically populated by JS -->
+          <div class="stop-card skeleton">
+            <div class="stop-header">
+              <div class="stop-info"><div class="skeleton-line title"></div></div>
+            </div>
+            <div class="departures-list">
+              <div class="skeleton-row"></div>
+              <div class="skeleton-row"></div>
+            </div>
           </div>
-        </div>
-        <div class="departures-list">
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
+          <div class="stop-card skeleton">
+            <div class="stop-header">
+              <div class="stop-info"><div class="skeleton-line title"></div></div>
+            </div>
+            <div class="departures-list">
+              <div class="skeleton-row"></div>
+              <div class="skeleton-row"></div>
+            </div>
+          </div>
+          <div class="stop-card skeleton">
+            <div class="stop-header">
+              <div class="stop-info"><div class="skeleton-line title"></div></div>
+            </div>
+            <div class="departures-list">
+              <div class="skeleton-row"></div>
+              <div class="skeleton-row"></div>
+            </div>
+          </div>
+          <div class="stop-card skeleton">
+            <div class="stop-header">
+              <div class="stop-info"><div class="skeleton-line title"></div></div>
+            </div>
+            <div class="departures-list">
+              <div class="skeleton-row"></div>
+              <div class="skeleton-row"></div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Stop Card 3 -->
-      <div class="stop-card skeleton" id="card-2">
-        <div class="stop-header">
-          <div class="stop-info">
-            <div class="skeleton-line title"></div>
-            <div class="skeleton-line sub"></div>
-          </div>
-        </div>
-        <div class="departures-list">
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-        </div>
-      </div>
-
-      <!-- Stop Card 4 -->
-      <div class="stop-card skeleton" id="card-3">
-        <div class="stop-header">
-          <div class="stop-info">
-            <div class="skeleton-line title"></div>
-            <div class="skeleton-line sub"></div>
-          </div>
-        </div>
-        <div class="departures-list">
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-          <div class="skeleton-row"></div>
-        </div>
-      </div>
     </main>
     
-    <!-- Footer / Troubleshooting Info -->
+    <!-- Footer -->
     <footer class="dashboard-footer">
       <div class="footer-left">
         <span class="dot-active"></span> Dashboard attiva su porta local/VPS
       </div>
       <div class="footer-right">
-        Basato su dati forniti da <strong>Navitia.io</strong>
+        Basato su dati forniti da <strong>Transitland</strong>
       </div>
     </footer>
 

@@ -1,12 +1,13 @@
 /**
- * app.js - Frontend client logic for Rome Transit Dashboard
+ * app.js - Frontend client logic for Rome Transit Dashboard (ATAC Lens & Tabs)
  * 
  * Functions:
  * 1. Digital clock & date update (Rome/Italy timezone formatting)
  * 2. Asynchronous transit data retrieval from backend (/api/transit)
  * 3. 45-second count-down timer with animated visual progress bar
- * 4. Dynamic HTML rendering with error resilience and live vs scheduled styling cues
- * 5. Interactive opposite direction toggle for Card 2 with local caching
+ * 4. Tab routing switcher ('lens' vs 'board' views)
+ * 5. ATAC Lens commute filter (Lines 81, 85, 87, 360 & all lines at Carlo Felice)
+ * 6. Interactive opposite direction toggle for Card 2 in Board view
  */
 
 // Dashboard State Configurations
@@ -20,8 +21,9 @@ let countdownTime = CONFIG.REFRESH_INTERVAL_SEC;
 let refreshTimerId = null;
 let countdownTimerId = null;
 
-// Direction Toggle States
-let card1ShowAlt = false;    // Toggles between index 1 and index 4 for Card 2
+// Tab Selection & Toggle States
+let activeTab = 'lens';      // Selected tab view: 'lens' (default) or 'board'
+let card1ShowAlt = false;    // Toggles between index 1 (72100) and index 4 (81993) for Card 2
 let lastTransitData = null;  // Holds client-side cache of last API fetch
 
 // DOM Elements cache
@@ -31,7 +33,8 @@ const dom = {
   lastUpdated: document.getElementById('last-updated'),
   countdownBar: document.getElementById('countdown-bar'),
   countdownText: document.getElementById('countdown-text'),
-  grid: document.getElementById('dashboard-grid')
+  grid: null, // Initialized dynamically in renderBoardView
+  lensList: null // Initialized dynamically in renderLensView
 };
 
 /**
@@ -75,7 +78,9 @@ async function fetchTransitData() {
     const transitData = await response.json();
     lastTransitData = transitData; // Store cache for instantaneous direction toggles
     
-    renderDashboard(transitData);
+    // Update both views
+    renderLensView(transitData);
+    renderBoardView(transitData);
     
     // Update "last updated" timestamp
     const now = new Date();
@@ -92,11 +97,119 @@ async function fetchTransitData() {
 }
 
 /**
- * Renders the dashboard grid containing the 4 stop cards.
- * @param {Array} stations - Array of station objects returned from backend proxy
+ * Tab switcher routing function. Exposed globally to handle HTML button clicks.
  */
-function renderDashboard(stations) {
-  dom.grid.innerHTML = ''; // Clear skeleton loader cards
+window.switchTab = function(tabName) {
+  activeTab = tabName;
+  
+  // Toggle tab buttons state
+  document.getElementById('tab-btn-lens').classList.toggle('active', tabName === 'lens');
+  document.getElementById('tab-btn-board').classList.toggle('active', tabName === 'board');
+  
+  // Toggle view containers state
+  document.getElementById('lens-view').classList.toggle('active', tabName === 'lens');
+  document.getElementById('board-view').classList.toggle('active', tabName === 'board');
+  
+  console.log(`[Tabs] Displaying view: ${tabName}`);
+};
+
+/**
+ * TAB 1: Renders the ATAC Lens View
+ * Aggregates all departures, filters for important lines (81, 85, 87, 360) 
+ * or station 72100/81993, and sorts them by minutes remaining.
+ */
+function renderLensView(stations) {
+  dom.lensList = document.getElementById('lens-list');
+  if (!dom.lensList) return;
+  dom.lensList.innerHTML = '';
+
+  if (!stations || !Array.isArray(stations) || stations.length < 4) {
+    dom.lensList.innerHTML = `<p class="error-message">Nessun dato disponibile per il Radar.</p>`;
+    return;
+  }
+
+  const importantLines = ['81', '85', '87', '360'];
+  let aggregatedDepartures = [];
+
+  // Loop through all retrieved stations (including default & alternate ones)
+  stations.forEach(station => {
+    if (!station || station.status === 'error' || !station.departures) return;
+
+    station.departures.forEach(dep => {
+      const isImportantLine = importantLines.includes(dep.line);
+      // Includes both directions of the Porta S. Giovanni / Carlo Felice hub
+      const isCarloFeliceHub = station.stopId === '72100' || station.stopId === '81993';
+
+      if (isImportantLine || isCarloFeliceHub) {
+        aggregatedDepartures.push({
+          ...dep,
+          stationName: station.stopName,
+          stationStopId: station.stopId
+        });
+      }
+    });
+  });
+
+  // Sort aggregated items by minutes remaining (soonest departures first)
+  aggregatedDepartures.sort((a, b) => a.minutesRemaining - b.minutesRemaining);
+
+  if (aggregatedDepartures.length === 0) {
+    dom.lensList.innerHTML = `
+      <div class="no-departures">
+        <span class="no-departures-icon">📡</span>
+        <p>Nessun bus importante rilevato nei paraggi</p>
+        <span style="font-size: 0.8rem;">Vengono monitorate le linee 81, 85, 87, 360 e il nodo Carlo Felice</span>
+      </div>
+    `;
+    return;
+  }
+
+  // Render the ranked departures rows
+  aggregatedDepartures.forEach(dep => {
+    const row = document.createElement('div');
+    row.className = 'lens-row';
+
+    const isLive = dep.status === 'realtime';
+    const timeClass = isLive ? 'realtime-depart' : 'scheduled-depart';
+    const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
+    const badgeLabel = isLive ? 'LIVE' : 'ORARIO';
+    
+    const lineStyle = dep.lineColor 
+      ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
+      : '';
+
+    row.innerHTML = `
+      <div class="line-identifier" style="${lineStyle}">
+        ${dep.line}
+      </div>
+      <div class="route-details">
+        <span class="route-direction">${dep.direction}</span>
+        <span class="route-station">
+          Arrivo a <strong>${dep.stationName}</strong>
+          <span class="status-badge ${badgeClass}" style="margin-left: 6px;">${badgeLabel}</span>
+        </span>
+      </div>
+      <div class="arrival-countdown">
+        <div style="text-align: right; display: flex; flex-direction: column; justify-content: center;">
+          <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">Tabella: ${dep.time}</span>
+        </div>
+        <span class="arrival-minutes ${timeClass}">
+          ${dep.minutesRemaining}
+        </span>
+        <span class="arrival-unit">min</span>
+      </div>
+    `;
+    dom.lensList.appendChild(row);
+  });
+}
+
+/**
+ * TAB 2: Renders the 4-card Station Board View.
+ */
+function renderBoardView(stations) {
+  dom.grid = document.getElementById('dashboard-grid');
+  if (!dom.grid) return;
+  dom.grid.innerHTML = ''; 
 
   if (!stations || !Array.isArray(stations) || stations.length < 4) {
     dom.grid.innerHTML = `
@@ -254,7 +367,8 @@ window.toggleCard1Direction = function(event) {
   card1ShowAlt = !card1ShowAlt;
   console.log(`[Toggle] Swapping Stop 2. Active alternate state: ${card1ShowAlt}`);
   if (lastTransitData) {
-    renderDashboard(lastTransitData);
+    renderLensView(lastTransitData);
+    renderBoardView(lastTransitData);
   }
 };
 
@@ -263,26 +377,38 @@ window.toggleCard1Direction = function(event) {
  * @param {String} errorMessage - Error details
  */
 function renderGeneralError(errorMessage) {
-  dom.grid.innerHTML = '';
-  for (let i = 0; i < 4; i++) {
-    const card = document.createElement('div');
-    card.className = 'stop-card error-card';
-    card.innerHTML = `
-      <div class="stop-header">
-        <div class="stop-info">
-          <span class="stop-name">Servizio Non Disponibile</span>
-          <span class="stop-code">Tentativo di riconnessione...</span>
+  const containers = [document.getElementById('lens-list'), document.getElementById('dashboard-grid')];
+  
+  containers.forEach((container) => {
+    if (!container) return;
+    container.innerHTML = '';
+    
+    // Renders error message depending on grid layout or lens view layout
+    const isGrid = container.id === 'dashboard-grid';
+    const cardCount = isGrid ? 4 : 1;
+    
+    for (let i = 0; i < cardCount; i++) {
+      const card = document.createElement('div');
+      card.className = 'stop-card error-card';
+      if (!isGrid) card.style.width = '100%';
+      
+      card.innerHTML = `
+        <div class="stop-header">
+          <div class="stop-info">
+            <span class="stop-name">Servizio Non Disponibile</span>
+            <span class="stop-code">Tentativo di riconnessione...</span>
+          </div>
+          <span class="stop-badge" style="border-color: rgba(255, 74, 74, 0.4); color: #ff4a4a;">Errore Server</span>
         </div>
-        <span class="stop-badge" style="border-color: rgba(255, 74, 74, 0.4); color: #ff4a4a;">Errore Server</span>
-      </div>
-      <div class="error-message">
-        <span class="no-departures-icon">🔌</span>
-        <span>Errore di comunicazione con il proxy locale</span>
-        <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 8px;">Dettaglio: ${errorMessage}</p>
-      </div>
-    `;
-    dom.grid.appendChild(card);
-  }
+        <div class="error-message">
+          <span class="no-departures-icon">🔌</span>
+          <span>Errore di comunicazione con il proxy locale</span>
+          <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 8px;">Dettaglio: ${errorMessage}</p>
+        </div>
+      `;
+      container.appendChild(card);
+    }
+  });
 }
 
 /**
