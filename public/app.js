@@ -13,7 +13,10 @@
 // Dashboard State Configurations
 const CONFIG = {
   REFRESH_INTERVAL_SEC: 45,
-  API_URL: '/api/transit'
+  // Automatically fallback to port 5050 if loading static files on standard dev ports or via file://
+  API_URL: (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '5050' && window.location.port !== '5000'))
+    ? 'http://localhost:5050/api/transit'
+    : '/api/transit'
 };
 
 // Global State
@@ -141,7 +144,7 @@ function renderLensView(stations) {
     station.departures.forEach(dep => {
       const isImportantLine = importantLines.includes(dep.line);
       // Includes both directions of the Porta S. Giovanni / Carlo Felice hub
-      const isCarloFeliceHub = station.stopId === '72100' || station.stopId === '81993';
+      const isCarloFeliceHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
 
       if (isImportantLine || isCarloFeliceHub) {
         aggregatedDepartures.push({
@@ -458,7 +461,7 @@ function renderMetroView(stations) {
   }
 
   // Find the Metro Station matching stopId "CP22"
-  const metroStation = stations.find(s => s && s.stopId === 'CP22');
+  const metroStation = stations.find(s => s && String(s.stopId) === 'CP22');
   
   if (!metroStation) {
     renderMetroError("Stazione Metro C non trovata nei dati.");

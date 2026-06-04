@@ -40,9 +40,15 @@ const CONFIG = {
   ]
 };
 
-// In-memory cache for mapping 5-digit stop codes to Transitland Onestop IDs
-// e.g. { "70030": "s-sr2yk7q0y2-termini" }
-const onestopIdCache = {};
+// In-memory cache for mapping stop codes to Transitland Onestop IDs
+const onestopIdCache = {
+  '71223': 's-sr2yk9hv89-portasgiovanni',
+  '72100': 's-sr2yk9hzef-portasgiovanni~carlofelice',
+  '81953': 's-sr2yk9m366-carlofelice',
+  '70335': 's-sr2yk9hv94-portasgiovanni',
+  '81993': 's-sr2yk9jpkp-portasgiovanni~carlofelice',
+  'CP22': 's-sr2yk9j36s-sangiovanni'
+};
 
 app.use(cors());
 app.use(express.static('public'));
