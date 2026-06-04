@@ -157,6 +157,10 @@ app.get('/api/transit', async (req, res) => {
               const lineColor = rawColor ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`) : null;
               const lineTextColor = rawTextColor ? (rawTextColor.startsWith('#') ? rawTextColor : `#${rawTextColor}`) : null;
 
+              // Extract delay details
+              const delaySec = dep.departure?.delay;
+              const delayMin = (delaySec !== null && delaySec !== undefined) ? Math.round(delaySec / 60) : null;
+
               return {
                 line: dep.trip?.route?.route_short_name || '?',
                 direction: dep.trip?.trip_headsign || 'Unknown Direction',
@@ -164,7 +168,8 @@ app.get('/api/transit', async (req, res) => {
                 minutesRemaining,
                 status: isLive ? 'realtime' : 'scheduled',
                 lineColor,
-                lineTextColor
+                lineTextColor,
+                delayMin
               };
             })
             // Filter out departures that have already left

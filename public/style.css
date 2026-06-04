@@ -1331,76 +1331,164 @@ body {
 }
 
 /* ==================================================
-   DYNAMIC COUNTDOWN ANIMATIONS (RUSHED & PARTING)
+   BIG DETAILED DYNAMIC RUSHED / PARTING ANIMATIONS
    ================================================== */
-.rushed-svg {
-  width: 14px;
-  height: 14px;
-  display: inline-block;
-  vertical-align: middle;
-  margin-left: 4px;
-  color: #ff4a4a; /* Red for rushing warning */
+.animation-container {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.runner {
-  animation: run-bob 0.25s infinite linear;
-  transform-origin: 12px 12px;
+.animation-container:empty {
+  width: 0;
 }
 
-@keyframes run-bob {
-  0% { transform: translateY(0) rotate(15deg); }
-  50% { transform: translateY(-1.5px) rotate(18deg); }
-  100% { transform: translateY(0) rotate(15deg); }
+.rushed-svg-big {
+  width: 32px;
+  height: 32px;
+  color: #ff4a4a;
+  filter: drop-shadow(0 0 6px rgba(255, 74, 74, 0.35));
 }
 
-.speed-line {
-  animation: speed-drift 0.4s infinite linear;
+.runner-big {
+  animation: run-bounce-big 0.25s infinite linear;
+  transform-origin: 16px 16px;
 }
 
-@keyframes speed-drift {
-  0% { transform: translateX(0); opacity: 0; }
+@keyframes run-bounce-big {
+  0% { transform: translateY(0) rotate(12deg); }
+  50% { transform: translateY(-1.5px) rotate(15deg); }
+  100% { transform: translateY(0) rotate(12deg); }
+}
+
+.leg-front {
+  animation: swing-front-leg 0.2s infinite alternate ease-in-out;
+  transform-origin: 14px 14px;
+}
+.leg-back {
+  animation: swing-back-leg 0.2s infinite alternate ease-in-out;
+  transform-origin: 14px 14px;
+}
+.arm-front {
+  animation: swing-back-leg 0.2s infinite alternate ease-in-out;
+  transform-origin: 17px 9px;
+}
+.arm-back {
+  animation: swing-front-leg 0.2s infinite alternate ease-in-out;
+  transform-origin: 17px 9px;
+}
+
+@keyframes swing-front-leg {
+  0% { transform: rotate(-25deg); }
+  100% { transform: rotate(30deg); }
+}
+@keyframes swing-back-leg {
+  0% { transform: rotate(30deg); }
+  100% { transform: rotate(-25deg); }
+}
+
+.wind {
+  animation: wind-blow-big 0.3s infinite linear;
+}
+.wind-1 { animation-delay: 0s; }
+.wind-2 { animation-delay: 0.1s; }
+.wind-3 { animation-delay: 0.15s; }
+
+@keyframes wind-blow-big {
+  0% { transform: translateX(0) scaleX(0.7); opacity: 0; }
   30% { opacity: 0.8; }
-  100% { transform: translateX(-4px); opacity: 0; }
+  100% { transform: translateX(-10px) scaleX(1.4); opacity: 0; }
 }
 
-.speed-line.line-1 { animation-delay: 0s; }
-.speed-line.line-2 { animation-delay: 0.15s; }
-.speed-line.line-3 { animation-delay: 0.08s; }
-
-.parting-svg {
-  width: 16px;
-  height: 16px;
-  display: inline-block;
-  vertical-align: middle;
-  margin-left: 4px;
-  color: var(--color-realtime); /* Green or active theme color */
+.parting-svg-big {
+  width: 32px;
+  height: 32px;
+  color: var(--color-realtime);
+  filter: drop-shadow(0 0 6px rgba(0, 255, 102, 0.35));
 }
 
-.bus-drive {
-  animation: drive-bounce 0.15s infinite linear;
+.bus-big {
+  animation: bus-bounce-big 0.15s infinite linear;
 }
 
-@keyframes drive-bounce {
+@keyframes bus-bounce-big {
   0% { transform: translateY(0); }
-  25% { transform: translateY(-0.6px) translateX(0.3px); }
-  50% { transform: translateY(0); }
-  75% { transform: translateY(-0.6px) translateX(-0.3px); }
+  50% { transform: translateY(-1.2px); }
   100% { transform: translateY(0); }
 }
 
-.exhaust {
-  transform-origin: 3px 15px;
-  animation: puff-smoke 0.8s infinite ease-out;
+.w-1-spoke, .w-2-spoke {
+  animation: spin-wheels-big 0.4s infinite linear;
+}
+.w-1-spoke { transform-origin: 13px 21px; }
+.w-2-spoke { transform-origin: 23px 21px; }
+
+@keyframes spin-wheels-big {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-@keyframes puff-smoke {
-  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
-  30% { opacity: 0.9; }
-  100% { transform: translate(-4px, -2px) scale(1.4); opacity: 0; }
+.smoke-cloud {
+  transform-origin: 8px 22px;
+  animation: puff-smoke-big 0.6s infinite ease-out;
+}
+.s-1 { animation-delay: 0s; }
+.s-2 { animation-delay: 0.2s; }
+.s-3 { animation-delay: 0.1s; }
+
+@keyframes puff-smoke-big {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  25% { opacity: 0.8; }
+  100% { transform: translate(-10px, -5px) scale(1.6); opacity: 0; }
 }
 
-.exhaust-1 { animation-delay: 0s; }
-.exhaust-2 { animation-delay: 0.4s; }
+/* ==================================================
+   TRAFFIC DELAY BADGES & PREFIXES
+   ================================================= */
+.dir-prefix {
+  font-size: 0.72em;
+  color: var(--text-muted);
+  text-transform: lowercase;
+  margin-right: 4px;
+  font-weight: 500;
+}
+
+.delay-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  margin-left: 6px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.delay-late {
+  background: rgba(255, 74, 74, 0.12);
+  border: 1px solid rgba(255, 74, 74, 0.25);
+  color: #ff4a4a;
+  box-shadow: 0 0 8px rgba(255, 74, 74, 0.15);
+}
+
+.delay-early {
+  background: rgba(0, 255, 102, 0.1);
+  border: 1px solid rgba(0, 255, 102, 0.2);
+  color: #00ff66;
+}
+
+.delay-ontime {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+}
+
 
 
 

@@ -191,25 +191,37 @@ function renderLensView(stations) {
       animationIndicator = getPartingBusSvg();
     }
 
+    let delayBadge = '';
+    if (dep.delayMin !== undefined && dep.delayMin !== null) {
+      if (dep.delayMin > 0) {
+        delayBadge = `<span class="delay-badge delay-late">+${dep.delayMin}m ritardo</span>`;
+      } else if (dep.delayMin < 0) {
+        delayBadge = `<span class="delay-badge delay-early">-${Math.abs(dep.delayMin)}m anticipo</span>`;
+      } else {
+        delayBadge = `<span class="delay-badge delay-ontime">in orario</span>`;
+      }
+    }
+
     row.innerHTML = `
       <div class="line-identifier" style="${lineStyle}">
         ${dep.line}
       </div>
       <div class="route-details">
-        <span class="route-direction">${dep.direction}</span>
+        <span class="route-direction"><span class="dir-prefix">dir.</span>${dep.direction}</span>
         <span class="route-station">
           Arrivo a <strong>${dep.stationName}</strong>
           <span class="status-badge ${badgeClass}" style="margin-left: 6px;">${badgeLabel}</span>
+          ${delayBadge}
         </span>
       </div>
       <div class="arrival-countdown">
-        <div style="text-align: right; display: flex; flex-direction: column; justify-content: center;">
-          <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">Tabella: ${dep.time}</span>
+        <div class="animation-container">
+          ${animationIndicator}
         </div>
         <span class="arrival-minutes ${timeClass}">
           ${dep.minutesRemaining}
         </span>
-        <span class="arrival-unit">min${animationIndicator}</span>
+        <span class="arrival-unit">min</span>
       </div>
     `;
     dom.lensList.appendChild(row);
@@ -331,23 +343,38 @@ function renderBoardView(stations) {
               animationIndicator = getPartingBusSvg();
             }
 
+            let delayBadge = '';
+            if (dep.delayMin !== undefined && dep.delayMin !== null) {
+              if (dep.delayMin > 0) {
+                delayBadge = `<span class="delay-badge delay-late">+${dep.delayMin}m</span>`;
+              } else if (dep.delayMin < 0) {
+                delayBadge = `<span class="delay-badge delay-early">-${Math.abs(dep.delayMin)}m</span>`;
+              } else {
+                delayBadge = `<span class="delay-badge delay-ontime">in orario</span>`;
+              }
+            }
+
             return `
               <div class="departure-row">
                 <div class="line-identifier" style="${lineStyle}">
                   ${dep.line}
                 </div>
                 <div class="route-details">
-                  <span class="route-direction">${dep.direction}</span>
+                  <span class="route-direction"><span class="dir-prefix">dir.</span>${dep.direction}</span>
                   <span class="route-time-scheduled">
                     Orario: <strong>${dep.time}</strong>
                     <span class="status-badge ${badgeClass}">${badgeLabel}</span>
+                    ${delayBadge}
                   </span>
                 </div>
                 <div class="arrival-countdown">
+                  <div class="animation-container">
+                    ${animationIndicator}
+                  </div>
                   <span class="arrival-minutes ${timeClass}">
                     ${dep.minutesRemaining}
                   </span>
-                  <span class="arrival-unit">min${animationIndicator}</span>
+                  <span class="arrival-unit">min</span>
                 </div>
               </div>
             `;
@@ -534,16 +561,22 @@ function renderMetroView(stations) {
   const statusLabel = nextIsLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
   metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span>`;
 
-  // Update next train unit SVG if rushed or parting
+  // Update next train animation container if rushed or parting
+  const metroAnimContainer = document.getElementById('metro-animation-container');
+  if (metroAnimContainer) {
+    if (nextTrain.minutesRemaining === 1) {
+      metroAnimContainer.innerHTML = getRunnerSvg();
+    } else if (nextTrain.minutesRemaining === 0) {
+      metroAnimContainer.innerHTML = getPartingBusSvg();
+    } else {
+      metroAnimContainer.innerHTML = '';
+    }
+  }
+  
+  // Ensure unit text remains standard min
   const metroNextUnit = document.querySelector('.metro-next-unit');
   if (metroNextUnit) {
-    if (nextTrain.minutesRemaining === 1) {
-      metroNextUnit.innerHTML = `min ${getRunnerSvg()}`;
-    } else if (nextTrain.minutesRemaining === 0) {
-      metroNextUnit.innerHTML = `min ${getPartingBusSvg()}`;
-    } else {
-      metroNextUnit.textContent = 'min';
-    }
+    metroNextUnit.textContent = 'min';
   }
 
   // Subsequent trains list (Index 1 onwards)
@@ -568,6 +601,17 @@ function renderMetroView(stations) {
         animationIndicator = getPartingBusSvg();
       }
 
+      let delayBadge = '';
+      if (dep.delayMin !== undefined && dep.delayMin !== null) {
+        if (dep.delayMin > 0) {
+          delayBadge = `<span class="delay-badge delay-late">+${dep.delayMin}m</span>`;
+        } else if (dep.delayMin < 0) {
+          delayBadge = `<span class="delay-badge delay-early">-${Math.abs(dep.delayMin)}m</span>`;
+        } else {
+          delayBadge = `<span class="delay-badge delay-ontime">in orario</span>`;
+        }
+      }
+
       return `
         <div class="metro-row">
           <span class="metro-row-dest">${dep.direction}</span>
@@ -575,10 +619,16 @@ function renderMetroView(stations) {
             <span class="metro-row-time">
               Orario: <strong>${dep.time}</strong>
               <span class="status-badge ${badgeClass}" style="margin-left: 6px; font-size: 0.6rem;">${badgeLabel}</span>
+              ${delayBadge}
             </span>
-            <span class="metro-row-countdown" style="color: ${timeColor};">
-              ${dep.minutesRemaining} min${animationIndicator}
-            </span>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <div class="animation-container" style="transform: scale(0.85);">
+                ${animationIndicator}
+              </div>
+              <span class="metro-row-countdown" style="color: ${timeColor};">
+                ${dep.minutesRemaining} min
+              </span>
+            </div>
           </div>
         </div>
       `;
@@ -699,28 +749,57 @@ async function fetchWeather() {
  */
 function getRunnerSvg() {
   return `
-    <svg class="rushed-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <circle cx="15" cy="5" r="2" fill="currentColor"/>
-      <path d="M14 7l-3 4M11 11l2 3 3 1M11 11l-3 1-1 4M13 8l3 1-1 3M13 8l-2-1-2 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <line class="speed-line line-1" x1="5" y1="8" x2="2" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <line class="speed-line line-2" x1="4" y1="12" x2="1" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <line class="speed-line line-3" x1="5" y1="16" x2="2" y2="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <svg class="rushed-svg-big" viewBox="0 0 32 32" fill="none" stroke="currentColor">
+      <!-- Wind streams -->
+      <path class="wind wind-1" d="M 6 8 Q 3 9 0 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <path class="wind wind-2" d="M 5 16 Q 2 17 -1 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <path class="wind wind-3" d="M 7 24 Q 4 25 1 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      
+      <!-- Runner -->
+      <g class="runner-big">
+        <!-- Head -->
+        <circle cx="20" cy="6" r="2.5" fill="currentColor"/>
+        <!-- Torso -->
+        <path d="M 18 8.5 L 14 14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        <!-- Front Arm -->
+        <path class="arm-front" d="M 17 9 L 21 11 L 19 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Back Arm -->
+        <path class="arm-back" d="M 17 9 L 13 8 L 10 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+        <!-- Front Leg -->
+        <path class="leg-front" d="M 14 14 L 17 19 L 21 21" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Back Leg -->
+        <path class="leg-back" d="M 14 14 L 10 17 L 12 22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+      </g>
     </svg>
   `;
 }
 
 function getPartingBusSvg() {
   return `
-    <svg class="parting-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <circle class="exhaust exhaust-1" cx="3" cy="15" r="1.2" fill="currentColor" stroke="none"/>
-      <circle class="exhaust exhaust-2" cx="1" cy="16" r="0.8" fill="currentColor" stroke="none"/>
-      <g class="bus-drive">
-        <rect x="5" y="6" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="2"/>
-        <rect x="14" y="8" width="4" height="3" fill="currentColor" stroke="none"/>
-        <rect x="9" y="8" width="4" height="3" fill="currentColor" stroke="none"/>
-        <circle cx="8" cy="16" r="1.5" fill="currentColor" stroke="none"/>
-        <circle cx="16" cy="16" r="1.5" fill="currentColor" stroke="none"/>
-        <path d="M19 11h1M19 12h2" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+    <svg class="parting-svg-big" viewBox="0 0 32 32" fill="none" stroke="currentColor">
+      <!-- Exhaust puff particles -->
+      <g class="smoke-puffs">
+        <circle class="smoke-cloud s-1" cx="6" cy="22" r="2.5" fill="currentColor" stroke="none"/>
+        <circle class="smoke-cloud s-2" cx="3" cy="23" r="1.8" fill="currentColor" stroke="none"/>
+        <circle class="smoke-cloud s-3" cx="5" cy="20" r="1.5" fill="currentColor" stroke="none"/>
+      </g>
+      
+      <!-- Driving bus -->
+      <g class="bus-big">
+        <!-- Main body -->
+        <rect x="8" y="8" width="20" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+        <!-- Front window -->
+        <rect x="21" y="10" width="5" height="4" fill="currentColor" stroke="none"/>
+        <!-- Back window -->
+        <rect x="14" y="10" width="5" height="4" fill="currentColor" stroke="none"/>
+        <!-- Wheels -->
+        <circle class="wheel w-1" cx="13" cy="21" r="2.5" fill="currentColor" stroke="none"/>
+        <circle class="wheel w-2" cx="23" cy="21" r="2.5" fill="currentColor" stroke="none"/>
+        <!-- Wheel spokes (rotation) -->
+        <line class="spoke w-1-spoke" x1="13" y1="18.5" x2="13" y2="23.5" stroke="var(--bg-base)" stroke-width="1.2"/>
+        <line class="spoke w-2-spoke" x1="23" y1="18.5" x2="23" y2="23.5" stroke="var(--bg-base)" stroke-width="1.2"/>
+        <!-- Underbody/Exhaust pipe -->
+        <path d="M 8 21 L 10 21" stroke="currentColor" stroke-width="1.5"/>
       </g>
     </svg>
   `;
