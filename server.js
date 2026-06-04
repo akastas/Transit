@@ -35,7 +35,8 @@ const CONFIG = {
     process.env.STOP_ID_2 || '72100',
     process.env.STOP_ID_3 || '81953',
     process.env.STOP_ID_4 || '70335',
-    process.env.STOP_ID_2_ALT || '81993'
+    process.env.STOP_ID_2_ALT || '81993',
+    process.env.STOP_ID_METRO || 'CP22'
   ]
 };
 

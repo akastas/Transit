@@ -78,9 +78,10 @@ async function fetchTransitData() {
     const transitData = await response.json();
     lastTransitData = transitData; // Store cache for instantaneous direction toggles
     
-    // Update both views
+    // Update all views
     renderLensView(transitData);
     renderBoardView(transitData);
+    renderMetroView(transitData);
     
     // Update "last updated" timestamp
     const now = new Date();
@@ -105,10 +106,12 @@ window.switchTab = function(tabName) {
   // Toggle tab buttons state
   document.getElementById('tab-btn-lens').classList.toggle('active', tabName === 'lens');
   document.getElementById('tab-btn-board').classList.toggle('active', tabName === 'board');
+  document.getElementById('tab-btn-metro').classList.toggle('active', tabName === 'metro');
   
   // Toggle view containers state
   document.getElementById('lens-view').classList.toggle('active', tabName === 'lens');
   document.getElementById('board-view').classList.toggle('active', tabName === 'board');
+  document.getElementById('metro-view').classList.toggle('active', tabName === 'metro');
   
   console.log(`[Tabs] Displaying view: ${tabName}`);
 };
@@ -378,6 +381,7 @@ window.toggleCard1Direction = function(event) {
  */
 function renderGeneralError(errorMessage) {
   const containers = [document.getElementById('lens-list'), document.getElementById('dashboard-grid')];
+  renderMetroError(errorMessage);
   
   containers.forEach((container) => {
     if (!container) return;
@@ -438,9 +442,214 @@ function startRefreshTimer() {
   }, 1000);
 }
 
+/**
+ * TAB 3: Renders the Metro Line C View (direction Colosseo, stop CP22).
+ */
+function renderMetroView(stations) {
+  const metroList = document.getElementById('metro-list');
+  const metroNextMins = document.getElementById('metro-next-mins');
+  const metroNextScheduled = document.getElementById('metro-next-scheduled');
+  
+  if (!metroList || !metroNextMins || !metroNextScheduled) return;
+
+  if (!stations || !Array.isArray(stations)) {
+    renderMetroError("Nessun dato disponibile.");
+    return;
+  }
+
+  // Find the Metro Station matching stopId "CP22"
+  const metroStation = stations.find(s => s && s.stopId === 'CP22');
+  
+  if (!metroStation) {
+    renderMetroError("Stazione Metro C non trovata nei dati.");
+    return;
+  }
+
+  if (metroStation.status === 'error') {
+    renderMetroError(metroStation.message || "Impossibile recuperare i dati della metro.");
+    return;
+  }
+
+  const departures = metroStation.departures || [];
+  
+  // Remove error-card styles if previously added
+  const boardEl = document.querySelector('.metro-board');
+  if (boardEl) boardEl.classList.remove('metro-error-card');
+
+  if (departures.length === 0) {
+    // Empty state
+    metroNextMins.textContent = "--";
+    metroNextScheduled.textContent = "Orario previsto: --:--";
+    metroList.innerHTML = `
+      <div class="no-departures">
+        <span class="no-departures-icon">⏳</span>
+        <p>Nessun treno della Metro C in arrivo</p>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Verifica gli orari più tardi</span>
+      </div>
+    `;
+    return;
+  }
+
+  // Next train (Index 0)
+  const nextTrain = departures[0];
+  const nextIsLive = nextTrain.status === 'realtime';
+  
+  metroNextMins.textContent = nextTrain.minutesRemaining;
+  if (nextIsLive) {
+    metroNextMins.style.color = '#00ff9d';
+    metroNextMins.style.textShadow = '0 0 20px rgba(0, 255, 157, 0.6)';
+  } else {
+    metroNextMins.style.color = '#ffaa00';
+    metroNextMins.style.textShadow = '0 0 15px rgba(255, 170, 0, 0.4)';
+  }
+  
+  const statusLabel = nextIsLive ? 'LIVE' : 'ORARIO';
+  metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span>`;
+
+  // Subsequent trains list (Index 1 onwards)
+  const subsequent = departures.slice(1);
+  if (subsequent.length === 0) {
+    metroList.innerHTML = `
+      <div style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.85rem;">
+        Nessuna partenza successiva programmata.
+      </div>
+    `;
+  } else {
+    metroList.innerHTML = subsequent.map(dep => {
+      const isLive = dep.status === 'realtime';
+      const timeColor = isLive ? '#00ff9d' : '#ffaa00';
+      const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
+      const badgeLabel = isLive ? 'LIVE' : 'ORARIO';
+      
+      return `
+        <div class="metro-row">
+          <span class="metro-row-dest">${dep.direction}</span>
+          <div class="metro-row-meta">
+            <span class="metro-row-time">
+              Orario: <strong>${dep.time}</strong>
+              <span class="status-badge ${badgeClass}" style="margin-left: 6px; font-size: 0.6rem;">${badgeLabel}</span>
+            </span>
+            <span class="metro-row-countdown" style="color: ${timeColor};">
+              ${dep.minutesRemaining} min
+            </span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
+/**
+ * Renders an error layout inside the Metro C tab.
+ */
+function renderMetroError(message) {
+  const metroList = document.getElementById('metro-list');
+  const metroNextMins = document.getElementById('metro-next-mins');
+  const metroNextScheduled = document.getElementById('metro-next-scheduled');
+  
+  if (metroNextMins) metroNextMins.textContent = "--";
+  if (metroNextScheduled) metroNextScheduled.textContent = "Errore di connessione";
+  
+  const boardEl = document.querySelector('.metro-board');
+  if (boardEl) boardEl.classList.add('metro-error-card');
+
+  if (metroList) {
+    metroList.innerHTML = `
+      <div class="error-message">
+        <span class="no-departures-icon">⚠️</span>
+        <span>Impossibile caricare le partenze della metro</span>
+        <span style="font-size: 0.75rem; opacity: 0.7;">${message}</span>
+      </div>
+    `;
+  }
+}
+
+/**
+ * Queries Open-Meteo hourly weather forecast for Rome.
+ * Displays current weather and warns if rain is predicted in the next 3 hours.
+ */
+async function fetchWeather() {
+  const weatherWidget = document.getElementById('weather-widget');
+  if (!weatherWidget) return;
+
+  try {
+    const lat = 41.8856;
+    const lon = 12.5098;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation_probability,precipitation,weathercode&timezone=Europe/Rome&forecast_days=1`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Weather service offline");
+
+    const data = await response.json();
+    if (!data.hourly || !data.hourly.time) {
+      throw new Error("Invalid weather data format");
+    }
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const currentHourStr = `${year}-${month}-${day}T${String(now.getHours()).padStart(2, '0')}:00`;
+    
+    // Find index corresponding to current hour
+    let currentIdx = data.hourly.time.findIndex(t => t.startsWith(currentHourStr));
+    if (currentIdx === -1) {
+      currentIdx = 0;
+    }
+
+    // WMO Weather code mapper
+    const getWeatherIcon = (code) => {
+      if (code === 0) return '☀️'; // Clear
+      if (code >= 1 && code <= 3) return '⛅'; // Part cloudy
+      if (code === 45 || code === 48) return '🌫️'; // Fog
+      if (code >= 51 && code <= 57) return '🌧️'; // Drizzle
+      if (code >= 61 && code <= 67) return '🌧️'; // Rain
+      if (code >= 71 && code <= 77) return '❄️'; // Snow
+      if (code >= 80 && code <= 82) return '🌧️'; // Showers
+      if (code >= 85 && code <= 86) return '❄️'; // Snow showers
+      if (code >= 95 && code <= 99) return '⛈️'; // Thunderstorm
+      return '☁️';
+    };
+
+    const currentCode = data.hourly.weathercode[currentIdx] ?? 0;
+    const currentIcon = getWeatherIcon(currentCode);
+    const currentTemp = data.hourly.temperature_2m ? Math.round(data.hourly.temperature_2m[currentIdx]) : '--';
+
+    // Check next 3 hours (currentHour, currentHour+1, currentHour+2)
+    let isRainPredicted = false;
+    for (let i = 0; i < 3; i++) {
+      const idx = currentIdx + i;
+      if (idx < data.hourly.time.length) {
+        const prob = data.hourly.precipitation_probability[idx] ?? 0;
+        const precip = data.hourly.precipitation[idx] ?? 0;
+        if (prob >= 20 || precip > 0.1) {
+          isRainPredicted = true;
+          break;
+        }
+      }
+    }
+
+    // Build the weather widget layout
+    let html = `<span>Roma: ${currentIcon} <span class="temp">${currentTemp}°C</span></span>`;
+    
+    if (isRainPredicted) {
+      html += `<span class="rain-alert">☔ Porta l'ombrello!</span>`;
+    }
+
+    weatherWidget.innerHTML = html;
+  } catch (error) {
+    console.warn("Failed to update weather widget:", error);
+    weatherWidget.innerHTML = `<span style="font-size: 0.75rem; opacity: 0.6;">Meteo non disponibile</span>`;
+  }
+}
+
 // Kickstart dashboard systems on page load
 window.addEventListener('DOMContentLoaded', () => {
   initClock();
   fetchTransitData();
+  fetchWeather(); // Fetch weather on load
   startRefreshTimer();
+  
+  // Fetch weather every 5 minutes (300,000 ms)
+  setInterval(fetchWeather, 300000);
 });
