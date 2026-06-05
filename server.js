@@ -256,16 +256,17 @@ app.get('/api/debug', async (req, res) => {
       const stopData = (data.stops && data.stops[0]) || {};
       const departures = Array.isArray(stopData.departures) ? stopData.departures : [];
 
-      const realtimeCount = departures.filter(d =>
-        d.departure?.estimated_local !== null && d.departure?.estimated_local !== undefined
-      ).length;
+      const realtimeCount = departures.filter(function (d) {
+        return d.departure && d.departure.estimated_local !== null && d.departure.estimated_local !== undefined;
+      }).length;
 
       // Surface one raw sample so the exact realtime fields are visible
-      const sample = departures[0]?.departure
+      const firstDep = departures[0] && departures[0].departure;
+      const sample = firstDep
         ? {
-            scheduled_local: departures[0].departure.scheduled_local,
-            estimated_local: departures[0].departure.estimated_local,
-            delay: departures[0].departure.delay
+            scheduled_local: firstDep.scheduled_local,
+            estimated_local: firstDep.estimated_local,
+            delay: firstDep.delay
           }
         : null;
 
