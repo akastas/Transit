@@ -42,9 +42,16 @@ const TRIP_UPDATES_URL = FEED_BASE + 'rome_rtgtfs_trip_updates_feed.pb';
 
 // How long a realtime fetch is reused before refetching (ms).
 const RT_TTL_MS = 20 * 1000;
-// Only surface departures within this look-ahead window (minutes) before the
-// adaptive padding logic kicks in. Mirrors the old server behaviour.
-const SOON_WINDOW_MIN = 20;
+// Look-ahead window (minutes): surface every departure up to this far out so the
+// Commute Radar can show ~the next hour of buses, not just imminent arrivals.
+// Override with LOOKAHEAD_MIN in .env. When a stop has fewer than MIN_DEPARTURES
+// within the window we still pad to the next few, so sparse stops (night service,
+// metro) never render empty.
+const LOOKAHEAD_MIN = (function () {
+  const v = parseInt(process.env.LOOKAHEAD_MIN, 10);
+  return (!isNaN(v) && v > 0) ? v : 60;
+})();
+const MIN_DEPARTURES = 5;
 
 // ---- In-memory caches -------------------------------------------------------
 let staticCache = null;       // { serviceDate, builtAt, stopNames, byStop }
@@ -573,9 +580,10 @@ async function getDepartures(stopIds) {
     .filter(function (d) { return d.minutesRemaining >= 0; })
     .sort(function (a, b) { return a.minutesRemaining - b.minutesRemaining; });
 
-    // Adaptive display: prefer the next 20 minutes, else pad to the next 5.
-    const soon = departures.filter(function (d) { return d.minutesRemaining <= SOON_WINDOW_MIN; });
-    const finalDeps = soon.length >= 5 ? soon : departures.slice(0, 5);
+    // Adaptive display: show everything within the look-ahead window; if that is
+    // fewer than MIN_DEPARTURES, pad to the next few so the card never looks empty.
+    const soon = departures.filter(function (d) { return d.minutesRemaining <= LOOKAHEAD_MIN; });
+    const finalDeps = soon.length >= MIN_DEPARTURES ? soon : departures.slice(0, MIN_DEPARTURES);
 
     return {
       stopId: rawId,

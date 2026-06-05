@@ -31,6 +31,10 @@ const CONFIG = {
   // Data source: 'direct' reads Roma Mobilita's GTFS + GTFS-RT feeds directly
   // (fresh, keyless). 'transitland' uses the legacy Transitland REST proxy.
   DATA_SOURCE: (process.env.DATA_SOURCE || 'direct').toLowerCase(),
+  // Look-ahead window (minutes) for how far out departures are listed. Default 60
+  // so the Commute Radar shows ~the next hour. Shared by both data sources.
+  LOOKAHEAD_MIN: (function () { const v = parseInt(process.env.LOOKAHEAD_MIN, 10); return (!isNaN(v) && v > 0) ? v : 60; })(),
+  MIN_DEPARTURES: 5,
   TRANSITLAND_APIKEY: process.env.TRANSITLAND_APIKEY,
   TRANSITLAND_FEED: process.env.TRANSITLAND_FEED || 'f-sr-atac~romatpl~trenitalia',
   // Exactly 4 Stop IDs from environment variables, with fallback Rome/ATAC example stop codes
@@ -198,13 +202,13 @@ app.get('/api/transit', async (req, res) => {
             .sort((a, b) => a.minutesRemaining - b.minutesRemaining);
 
           // Adaptive Display Logic:
-          // 1. Show all departures scheduled/estimated within the next 20 minutes.
-          // 2. If there are fewer than 5 departures within 20 minutes, pad the list to show at least the next 5 departures.
-          const soonDepartures = departures.filter(dep => dep.minutesRemaining <= 20);
-          if (soonDepartures.length >= 5) {
+          // 1. Show all departures within the look-ahead window (LOOKAHEAD_MIN, default 60 min).
+          // 2. If there are fewer than MIN_DEPARTURES in that window, pad to the next few.
+          const soonDepartures = departures.filter(dep => dep.minutesRemaining <= CONFIG.LOOKAHEAD_MIN);
+          if (soonDepartures.length >= CONFIG.MIN_DEPARTURES) {
             departures = soonDepartures;
           } else {
-            departures = departures.slice(0, 5);
+            departures = departures.slice(0, CONFIG.MIN_DEPARTURES);
           }
         }
       }
