@@ -135,12 +135,16 @@ app.get('/api/transit', async (req, res) => {
           
           departures = stopData.departures
             .map(dep => {
+              const hasDepartureObj = dep.departure !== null && dep.departure !== undefined;
+              const hasTripObj = dep.trip !== null && dep.trip !== undefined;
+              const hasRouteObj = hasTripObj && dep.trip.route !== null && dep.trip.route !== undefined;
+
               // Realtime check: GTFS-RT estimates provide estimated_local
-              const isLive = dep.departure?.estimated_local !== null && dep.departure?.estimated_local !== undefined;
+              const isLive = hasDepartureObj && dep.departure.estimated_local !== null && dep.departure.estimated_local !== undefined;
               
               // Pick correct local timestamp (fallback to scheduled local time)
-              const timeStr = isLive ? dep.departure.estimated_local : dep.departure.scheduled_local;
-              const scheduledTimeOnly = dep.departure?.scheduled ? dep.departure.scheduled.substring(0, 5) : '--:--';
+              const timeStr = hasDepartureObj ? (isLive ? dep.departure.estimated_local : dep.departure.scheduled_local) : null;
+              const scheduledTimeOnly = (hasDepartureObj && dep.departure.scheduled) ? dep.departure.scheduled.substring(0, 5) : '--:--';
               
               // Calculate minutes remaining (absolute timezone-safe math)
               let minutesRemaining = 0;
@@ -151,19 +155,19 @@ app.get('/api/transit', async (req, res) => {
               }
 
               // Color configuration formatting
-              const rawColor = dep.trip?.route?.route_color;
-              const rawTextColor = dep.trip?.route?.route_text_color;
+              const rawColor = hasRouteObj ? dep.trip.route.route_color : null;
+              const rawTextColor = hasRouteObj ? dep.trip.route.route_text_color : null;
               
               const lineColor = rawColor ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`) : null;
               const lineTextColor = rawTextColor ? (rawTextColor.startsWith('#') ? rawTextColor : `#${rawTextColor}`) : null;
 
               // Extract delay details
-              const delaySec = dep.departure?.delay;
+              const delaySec = hasDepartureObj ? dep.departure.delay : null;
               const delayMin = (delaySec !== null && delaySec !== undefined) ? Math.round(delaySec / 60) : null;
 
               return {
-                line: dep.trip?.route?.route_short_name || '?',
-                direction: dep.trip?.trip_headsign || 'Unknown Direction',
+                line: (hasRouteObj && dep.trip.route.route_short_name) || '?',
+                direction: (hasTripObj && dep.trip.trip_headsign) || 'Unknown Direction',
                 time: scheduledTimeOnly,
                 minutesRemaining,
                 status: isLive ? 'realtime' : 'scheduled',
