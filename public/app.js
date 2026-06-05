@@ -85,18 +85,21 @@ async function fetchTransitData() {
     renderLensView(transitData);
     renderBoardView(transitData);
     renderMetroView(transitData);
-    
-    // Update "last updated" timestamp
-    const now = new Date();
-    dom.lastUpdated.textContent = now.toLocaleTimeString('it-IT', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
   } catch (error) {
     console.error('Failed to retrieve transit data:', error);
     renderGeneralError(error.message);
+  } finally {
+    // Always refresh the "last update check" timestamp, even when the fetch
+    // failed or a render threw. This keeps the indicator from getting stuck at
+    // --:--:-- so the user can always see when the dashboard last checked.
+    if (dom.lastUpdated) {
+      dom.lastUpdated.textContent = new Date().toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    }
   }
 }
 
