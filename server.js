@@ -13,6 +13,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const gtfsDirect = require('./gtfsDirect');
 
 // Dynamically handle node-fetch import for compatibility across Node versions
 let fetch;
@@ -27,6 +28,9 @@ const app = express();
 // Config settings read from .env
 const CONFIG = {
   PORT: process.env.PORT || 5000,
+  // Data source: 'direct' reads Roma Mobilita's GTFS + GTFS-RT feeds directly
+  // (fresh, keyless). 'transitland' uses the legacy Transitland REST proxy.
+  DATA_SOURCE: (process.env.DATA_SOURCE || 'direct').toLowerCase(),
   TRANSITLAND_APIKEY: process.env.TRANSITLAND_APIKEY,
   TRANSITLAND_FEED: process.env.TRANSITLAND_FEED || 'f-sr-atac~romatpl~trenitalia',
   // Exactly 4 Stop IDs from environment variables, with fallback Rome/ATAC example stop codes
@@ -97,6 +101,18 @@ async function resolveOnestopId(stopId, apikey, feedId) {
  * Query departures across all 4 configured stations.
  */
 app.get('/api/transit', async (req, res) => {
+  // Preferred path: read Rome's source feeds directly (fresh schedule + GTFS-RT).
+  if (CONFIG.DATA_SOURCE === 'direct') {
+    try {
+      const results = await gtfsDirect.getDepartures(CONFIG.STOP_IDS);
+      return res.json(results);
+    } catch (err) {
+      console.error('[Direct] Failed to build departures:', err.message);
+      return res.status(500).json({ status: 'error', message: 'Failed to build transit data from direct feeds.' });
+    }
+  }
+
+  // Legacy fallback: Transitland REST proxy (set DATA_SOURCE=transitland).
   if (!CONFIG.TRANSITLAND_APIKEY) {
     return res.status(500).json({
       status: 'error',
@@ -236,6 +252,16 @@ app.get('/api/transit', async (req, res) => {
  * being matched on Transitland's side (feed issue), not a bug in this app.
  */
 app.get('/api/debug', async (req, res) => {
+  // In direct mode, report from Rome's source feeds (scheduled-today + RT matches).
+  if (CONFIG.DATA_SOURCE === 'direct') {
+    try {
+      const diag = await gtfsDirect.getDiagnostics(CONFIG.STOP_IDS);
+      return res.json(diag);
+    } catch (err) {
+      return res.status(500).json({ status: 'error', message: err.message });
+    }
+  }
+
   if (!CONFIG.TRANSITLAND_APIKEY) {
     return res.status(500).json({ status: 'error', message: 'Transitland API key is missing.' });
   }
@@ -297,6 +323,7 @@ app.get('/api/debug', async (req, res) => {
 app.listen(CONFIG.PORT, () => {
   console.log(`==================================================`);
   console.log(` Rome Transit Proxy running on http://localhost:${CONFIG.PORT}`);
+  console.log(` Data source: ${CONFIG.DATA_SOURCE}`);
   console.log(` Active stop IDs: [ ${CONFIG.STOP_IDS.join(', ')} ]`);
   console.log(` Bounded feed: ${CONFIG.TRANSITLAND_FEED}`);
   console.log(`==================================================`);
