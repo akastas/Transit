@@ -223,6 +223,71 @@ app.get('/api/transit', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/debug
+ * Diagnostic endpoint: for each configured stop, reports how many departures
+ * Transitland returns with realtime estimates (estimated_local present) versus
+ * scheduled-only. Use this to confirm whether GTFS-Realtime is actually
+ * attaching for ATAC. If every stop shows realtime: 0, the live data is not
+ * being matched on Transitland's side (feed issue), not a bug in this app.
+ */
+app.get('/api/debug', async (req, res) => {
+  if (!CONFIG.TRANSITLAND_APIKEY) {
+    return res.status(500).json({ status: 'error', message: 'Transitland API key is missing.' });
+  }
+
+  const apikey = CONFIG.TRANSITLAND_APIKEY;
+  const feedId = CONFIG.TRANSITLAND_FEED;
+
+  const report = await Promise.all(CONFIG.STOP_IDS.map(async (rawStopId) => {
+    try {
+      const onestopId = await resolveOnestopId(rawStopId, apikey, feedId);
+      const departuresUrl = `https://transit.land/api/v2/rest/stops/${onestopId}/departures?apikey=${apikey}&limit=40`;
+      const response = await fetch(departuresUrl);
+      if (!response.ok) {
+        throw new Error(`Departures query returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const stopData = (data.stops && data.stops[0]) || {};
+      const departures = Array.isArray(stopData.departures) ? stopData.departures : [];
+
+      const realtimeCount = departures.filter(d =>
+        d.departure?.estimated_local !== null && d.departure?.estimated_local !== undefined
+      ).length;
+
+      // Surface one raw sample so the exact realtime fields are visible
+      const sample = departures[0]?.departure
+        ? {
+            scheduled_local: departures[0].departure.scheduled_local,
+            estimated_local: departures[0].departure.estimated_local,
+            delay: departures[0].departure.delay
+          }
+        : null;
+
+      return {
+        stopId: rawStopId,
+        stopName: stopData.stop_name || `Stop ${rawStopId}`,
+        totalDepartures: departures.length,
+        realtime: realtimeCount,
+        scheduledOnly: departures.length - realtimeCount,
+        sampleFirstDeparture: sample
+      };
+    } catch (error) {
+      return { stopId: rawStopId, error: error.message };
+    }
+  }));
+
+  const totalRealtime = report.reduce((sum, r) => sum + (r.realtime || 0), 0);
+  res.json({
+    feed: feedId,
+    realtimeFeedHint: `${feedId}~rt`,
+    anyRealtimeAvailable: totalRealtime > 0,
+    checkedAt: new Date().toISOString(),
+    stops: report
+  });
+});
+
 // Start proxy server
 app.listen(CONFIG.PORT, () => {
   console.log(`==================================================`);
