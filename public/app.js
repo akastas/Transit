@@ -256,6 +256,10 @@ function renderBoardView(stations) {
     return;
   }
 
+  // Honour the "Programmati" toggle: off (default) shows only live arrivals.
+  const boardCheckbox = document.getElementById('board-show-scheduled');
+  const showScheduled = boardCheckbox ? boardCheckbox.checked : false;
+
   // Map 5 backend stop endpoints into exactly 4 display cards matching custom ordering:
   // Card 0 -> STOP_ID_1 (index 0, e.g. 71223)
   // Card 1 -> STOP_ID_2 (index 1, e.g. 72100) OR STOP_ID_2_ALT (index 4, e.g. 81993)
@@ -309,8 +313,13 @@ function renderBoardView(stations) {
       return;
     }
 
+    // Apply the live-only filter unless the Programmati toggle is on.
+    const allDepartures = station.departures || [];
+    const visibleDepartures = allDepartures.filter(dep => showScheduled || dep.status === 'realtime');
+    const hiddenScheduledCount = allDepartures.length - visibleDepartures.length;
+
     // Build header actions with optional invert button
-    const departuresCount = station.departures ? station.departures.length : 0;
+    const departuresCount = visibleDepartures.length;
     const badgeText = departuresCount === 1 ? '1 arrivo' : `${departuresCount} arrivi`;
     
     const toggleBtnHtml = cardConfig.isTogglable
@@ -322,19 +331,23 @@ function renderBoardView(stations) {
     let departuresHtml = '';
     
     if (departuresCount === 0) {
-      // Empty state inside card if no departures are scheduled
+      // Empty state inside card. When we're hiding scheduled-only departures,
+      // point the user at the Programmati toggle instead of implying no service.
+      const emptyHint = (!showScheduled && hiddenScheduledCount > 0)
+        ? 'Nessun arrivo in tempo reale · attiva <strong>Programmati</strong> per gli orari'
+        : 'Verifica gli orari più tardi';
       departuresHtml = `
         <div class="no-departures">
           <span class="no-departures-icon">⏳</span>
           <p>Nessun bus o tram in arrivo</p>
-          <span style="font-size: 0.8rem;">Verifica gli orari più tardi</span>
+          <span style="font-size: 0.8rem;">${emptyHint}</span>
         </div>
       `;
     } else {
       // Loop and build departure rows
       departuresHtml = `
         <div class="departures-list">
-          ${station.departures.map(dep => {
+          ${visibleDepartures.map(dep => {
             const isLive = dep.status === 'realtime';
             
             // Neon green styling for live GPS data, muted amber/gray for timetable estimate
@@ -819,6 +832,12 @@ function getPartingBusSvg() {
 function toggleScheduledLens() {
   if (lastTransitData) {
     renderLensView(lastTransitData);
+  }
+}
+
+function toggleScheduledBoard() {
+  if (lastTransitData) {
+    renderBoardView(lastTransitData);
   }
 }
 
