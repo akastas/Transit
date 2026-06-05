@@ -405,6 +405,9 @@ async function buildStaticSchedule(stopIds, rome) {
     builtAt: Date.now(),
     stopNames: stopNames,
     targetStopIds: targetStopIds,
+    activeServicesCount: Object.keys(activeServices).length,
+    activeTripsCount: Object.keys(tripsById).length,
+    stopsFileRows: small['stops.txt'] ? true : false,
     byStop: byStop
   };
 }
@@ -602,16 +605,32 @@ async function getDiagnostics(stopIds) {
     return out;
   }
 
+  // Schedule-build health (helps tell "stop not found" from "no service today").
+  out.activeServicesToday = schedule.activeServicesCount;
+  out.activeTripsToday = schedule.activeTripsCount;
+
   let rt = null;
   let rtError = null;
   try { rt = await getRealtime(); } catch (err) { rtError = err.message; }
   out.realtimeAvailable = !!(rt && Object.keys(rt.byTripStop).length > 0);
   out.realtimeEntries = rt ? Object.keys(rt.byTripStop).length : 0;
   if (rtError) out.realtimeError = rtError;
+  // Sample of trip IDs from the realtime feed, to compare ID format with static.
+  if (rt) {
+    const rtKeys = Object.keys(rt.byTripStop);
+    const seen = {};
+    const rtSample = [];
+    for (let k = 0; k < rtKeys.length && rtSample.length < 5; k++) {
+      const tid = rtKeys[k].split('|')[0];
+      if (!seen[tid]) { seen[tid] = true; rtSample.push(tid); }
+    }
+    out.realtimeSampleTripIds = rtSample;
+  }
 
   let totalRealtimeMatched = 0;
   for (let i = 0; i < stopIds.length; i++) {
     const code = String(stopIds[i]).trim();
+    const resolved = isResolved(schedule, code);
     const rows = schedule.byStop[code] || [];
     let matched = 0;
     if (rt) {
@@ -620,15 +639,42 @@ async function getDiagnostics(stopIds) {
       }
     }
     totalRealtimeMatched += matched;
+
+    // A few sample scheduled departures so we can eyeball times + trip IDs.
+    const sample = rows
+      .slice()
+      .sort(function (a, b) { return a.depSec - b.depSec; })
+      .slice(0, 3)
+      .map(function (r) {
+        return { time: secondsToHHMM(r.depSec), line: r.line, tripId: r.tripId, gtfsStopId: r.stopId };
+      });
+
     out.stops.push({
       stopId: stopIds[i],
+      resolvedInFeed: resolved,
       stopName: resolveStopName(schedule, code) || ('Stop ' + stopIds[i]),
       scheduledToday: rows.length,
-      realtimeMatched: matched
+      realtimeMatched: matched,
+      sampleDepartures: sample,
+      // Plain-language hint to speed up diagnosis.
+      hint: !resolved
+        ? 'stop id/code not found in stops.txt — mapping needs fixing'
+        : (rows.length === 0
+            ? 'stop found but no active departures today — calendar/service issue'
+            : (matched === 0 ? 'scheduled OK but no realtime match for this stop' : 'ok'))
     });
   }
   out.anyRealtimeMatched = totalRealtimeMatched > 0;
   return out;
+}
+
+/** True if the requested code resolved to a stop in the feed. */
+function isResolved(schedule, code) {
+  const map = schedule.targetStopIds || {};
+  for (const resolvedStopId in map) {
+    if (map[resolvedStopId] === code) return true;
+  }
+  return false;
 }
 
 module.exports = {
