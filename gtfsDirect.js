@@ -30,7 +30,13 @@ if (typeof globalThis.fetch === 'function') {
   fetchFn = require('node-fetch');
 }
 
-const FEED_BASE = 'https://romamobilita.it/sites/default/files/';
+// Roma Mobilita migrated these feeds off the old Drupal path
+// (/sites/default/files/) to /wp-content/uploads/shared/. The old path now
+// answers with a 301 (Moved Permanently) to the new one, so we point at the
+// canonical location directly instead of relying on the redirect. fetch /
+// node-fetch still follow redirects, which keeps this resilient if the path
+// shifts again.
+const FEED_BASE = 'https://romamobilita.it/wp-content/uploads/shared/';
 const STATIC_URL = FEED_BASE + 'rome_static_gtfs.zip';
 const TRIP_UPDATES_URL = FEED_BASE + 'rome_rtgtfs_trip_updates_feed.pb';
 
