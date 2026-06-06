@@ -85,6 +85,7 @@ async function fetchTransitData() {
     renderLensView(transitData);
     renderBoardView(transitData);
     renderMetroView(transitData);
+    renderLineView(transitData);
   } catch (error) {
     console.error('Failed to retrieve transit data:', error);
     renderGeneralError(error.message);
@@ -113,11 +114,13 @@ window.switchTab = function(tabName) {
   document.getElementById('tab-btn-lens').classList.toggle('active', tabName === 'lens');
   document.getElementById('tab-btn-board').classList.toggle('active', tabName === 'board');
   document.getElementById('tab-btn-metro').classList.toggle('active', tabName === 'metro');
-  
+  document.getElementById('tab-btn-line').classList.toggle('active', tabName === 'line');
+
   // Toggle view containers state
   document.getElementById('lens-view').classList.toggle('active', tabName === 'lens');
   document.getElementById('board-view').classList.toggle('active', tabName === 'board');
   document.getElementById('metro-view').classList.toggle('active', tabName === 'metro');
+  document.getElementById('line-view').classList.toggle('active', tabName === 'line');
   
   console.log(`[Tabs] Displaying view: ${tabName}`);
 };
@@ -127,6 +130,11 @@ window.switchTab = function(tabName) {
  * Aggregates all departures, filters for important lines (81, 85, 87, 360) 
  * or station 72100/81993, and sorts them by minutes remaining.
  */
+// Rome night lines (notturni) use route codes starting with "n" (nMA, nMC, n3d).
+function isNightLine(line) {
+  return typeof line === 'string' && line.charAt(0) === 'n';
+}
+
 function renderLensView(stations) {
   dom.lensList = document.getElementById('lens-list');
   if (!dom.lensList) return;
@@ -151,8 +159,10 @@ function renderLensView(stations) {
       const isImportantLine = importantLines.includes(dep.line);
       // Includes both directions of the Porta S. Giovanni / Carlo Felice hub
       const isCarloFeliceHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
+      // Night service: the daytime lines stop running, so surface every night bus (n...).
+      const isNightBus = isNightLine(dep.line);
 
-      if (isImportantLine || isCarloFeliceHub) {
+      if (isImportantLine || isCarloFeliceHub || isNightBus) {
         // Filter out scheduled departures if toggle is unchecked
         if (!showScheduled && dep.status !== 'realtime') {
           return;
@@ -839,6 +849,112 @@ function toggleScheduledBoard() {
   if (lastTransitData) {
     renderBoardView(lastTransitData);
   }
+}
+
+function toggleScheduledLine() {
+  if (lastTransitData) {
+    renderLineView(lastTransitData);
+  }
+}
+
+/**
+ * TAB 4: Renders the "Linea Live" timeline view.
+ * A SINGLE horizontal rail holding the same buses as the ATAC Lens (preferred
+ * lines + the Carlo Felice hub). The 📍 endpoint (right) = arriving now; the
+ * left edge = 60 min out. Each bus is the animated bus icon driving on the line;
+ * live ones drive (green), scheduled ones are parked (grey). Next one emphasised.
+ */
+function renderLineView(stations) {
+  const container = document.getElementById('line-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!stations || !Array.isArray(stations)) {
+    container.innerHTML = `<p class="error-message">Nessun dato disponibile per la Linea Live.</p>`;
+    return;
+  }
+
+  const checkbox = document.getElementById('line-show-scheduled');
+  const showScheduled = checkbox ? checkbox.checked : false;
+
+  const SCALE_MIN = 60; // left edge = 60 min out; right edge (📍) = arriving now
+
+  // Same selection as the ATAC Lens: preferred lines + the Carlo Felice hub.
+  const importantLines = ['81', '85', '87', '360'];
+  let buses = [];
+  stations.forEach(station => {
+    if (!station || station.status === 'error' || !station.departures) return;
+    station.departures.forEach(dep => {
+      const isImportant = importantLines.includes(dep.line);
+      const isHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
+      const isNight = isNightLine(dep.line); // include night buses so the line isn't empty overnight
+      if (!(isImportant || isHub || isNight)) return;
+      if (!showScheduled && dep.status !== 'realtime') return;
+      buses.push({
+        line: dep.line,
+        direction: dep.direction,
+        time: dep.time,
+        minutesRemaining: dep.minutesRemaining,
+        status: dep.status,
+        lineColor: dep.lineColor,
+        lineTextColor: dep.lineTextColor,
+        stationName: station.stopName
+      });
+    });
+  });
+
+  buses.sort((a, b) => a.minutesRemaining - b.minutesRemaining);
+  buses = buses.slice(0, 20); // keep the single rail readable
+
+  if (buses.length === 0) {
+    container.innerHTML = `
+      <div class="line-empty-full">
+        <span class="no-departures-icon">📡</span>
+        <p>Nessun bus importante in arrivo</p>
+        <span style="font-size: 0.8rem;">${showScheduled
+          ? 'Linee monitorate: 81, 85, 87, 360 + nodo Carlo Felice'
+          : 'Attiva Programmati per vedere anche gli orari'}</span>
+      </div>`;
+    return;
+  }
+
+  let busesHtml = '';
+  buses.forEach((dep, idx) => {
+    const m = dep.minutesRemaining;
+    const clamped = Math.max(0, Math.min(SCALE_MIN, m));
+    // Map minutes to a 2%..98% position so markers stay on the rail.
+    const leftPct = 2 + (1 - clamped / SCALE_MIN) * 96;
+    const isLive = dep.status === 'realtime';
+    const isNext = idx === 0;
+    const place = (idx % 2 === 0) ? 'above' : 'below'; // alternate to separate bunched buses
+    const lineStyle = dep.lineColor
+      ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}; border-color: transparent;`
+      : '';
+    const cls = `line-bus ${place} ${isLive ? 'live' : 'scheduled'}${isNext ? ' next' : ''}`;
+    const safeDir = String(dep.direction || '').replace(/"/g, '&quot;');
+    const safeStation = String(dep.stationName || '').replace(/"/g, '&quot;');
+    const title = `${dep.line} → ${safeDir} · ${safeStation} · ${dep.time}${isLive ? ' · LIVE' : ' · orario'}`;
+    // DOM order [badge, min, icon] so the bus icon is the element nearest the rail.
+    busesHtml += `
+      <div class="${cls}" style="left: ${leftPct}%;" title="${title}">
+        <span class="line-bus-badge" style="${lineStyle}">${dep.line}</span>
+        <span class="line-bus-min">${m}'</span>
+        <span class="line-bus-icon">${getPartingBusSvg()}</span>
+      </div>`;
+  });
+
+  container.innerHTML = `
+    <div class="line-single">
+      <div class="line-track">
+        <span class="line-scale-label">${SCALE_MIN}'</span>
+        <div class="line-rail-wrap">
+          <div class="line-rail"></div>
+          ${busesHtml}
+        </div>
+        <span class="line-endpoint" title="In arrivo ora">📍</span>
+      </div>
+    </div>
+  `;
 }
 
 // Kickstart dashboard systems on page load

@@ -739,7 +739,9 @@ body {
   border-radius: 12px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  max-width: 450px;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 95vw;
   margin: 0 auto;
 }
 
@@ -1564,6 +1566,124 @@ body {
   background: linear-gradient(135deg, #ffffff 40%, #a0a0ba 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* =========================================================
+   LINEA LIVE (Tab 4) - one timeline for the ATAC Lens buses.
+   Buses drive ON a single rail; 📍 (right) = arriving now,
+   left edge = 60 min out. Nearest the pin = soonest.
+   ========================================================= */
+.line-list { padding: 6px 2px; }
+.line-single { padding: 6px 4px; }
+
+.line-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.line-scale-label {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  opacity: 0.7;
+}
+.line-endpoint {
+  font-size: 1.7rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 7px rgba(0, 255, 102, 0.4));
+}
+
+.line-rail-wrap {
+  position: relative;
+  flex: 1;
+  height: 160px;
+  min-width: 0;
+}
+.line-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 255, 102, 0.4) 100%);
+  border-radius: 3px;
+}
+
+.line-bus {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 2;
+}
+/* alternate above/below so bunched buses don't overlap; bus icon hugs the rail */
+.line-bus.above { bottom: 50%; }
+.line-bus.below { top: 50%; flex-direction: column-reverse; }
+
+.line-bus-badge {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.74rem;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
+  transition: transform 0.2s ease;
+}
+.line-bus-min {
+  font-size: 0.66rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.line-bus-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* reuse the animated bus SVG, sized down for the rail */
+.line-bus-icon .parting-svg-big { width: 28px; height: 28px; }
+
+/* live buses drive (green, animated); scheduled ones are parked (grey, still) */
+.line-bus.scheduled { opacity: 0.6; }
+.line-bus.scheduled .line-bus-icon .parting-svg-big {
+  color: var(--text-secondary);
+  filter: none;
+}
+.line-bus.scheduled .bus-big,
+.line-bus.scheduled .w-1-spoke,
+.line-bus.scheduled .w-2-spoke,
+.line-bus.scheduled .smoke-cloud {
+  animation-play-state: paused;
+}
+.line-bus.scheduled .smoke-puffs { opacity: 0; }
+
+.line-bus.live .line-bus-badge { box-shadow: 0 0 0 1px rgba(0, 255, 102, 0.25); }
+
+.line-bus.next { z-index: 6; }
+.line-bus.next .line-bus-badge {
+  transform: scale(1.15);
+  box-shadow: 0 0 12px rgba(0, 255, 102, 0.55), 0 0 0 2px rgba(0, 255, 102, 0.4);
+}
+.line-bus.next .line-bus-min { color: var(--color-realtime); font-weight: 700; }
+.line-bus.next .line-bus-icon .parting-svg-big { width: 40px; height: 40px; }
+
+.line-empty-full {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+}
+.line-empty-full p {
+  margin: 0.6rem 0 0.2rem;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
 }
 
 
