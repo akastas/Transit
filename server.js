@@ -165,6 +165,8 @@ app.get('/api/transit', async (req, res) => {
               // Pick correct local timestamp (fallback to scheduled local time)
               const timeStr = hasDepartureObj ? (isLive ? dep.departure.estimated_local : dep.departure.scheduled_local) : null;
               const scheduledTimeOnly = (hasDepartureObj && dep.departure.scheduled) ? dep.departure.scheduled.substring(0, 5) : '--:--';
+              // Show the predicted clock time when live, so HH:MM matches the countdown (and Moovit).
+              const displayTimeOnly = (isLive && timeStr) ? timeStr.substring(11, 16) : scheduledTimeOnly;
               
               // Calculate minutes remaining (absolute timezone-safe math)
               let minutesRemaining = 0;
@@ -188,7 +190,7 @@ app.get('/api/transit', async (req, res) => {
               return {
                 line: (hasRouteObj && dep.trip.route.route_short_name) || '?',
                 direction: (hasTripObj && dep.trip.trip_headsign) || 'Unknown Direction',
-                time: scheduledTimeOnly,
+                time: displayTimeOnly,
                 minutesRemaining,
                 status: isLive ? 'realtime' : 'scheduled',
                 lineColor,

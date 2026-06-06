@@ -121,6 +121,21 @@ function secondsToHHMM(sec) {
   return pad(h) + ':' + pad(m);
 }
 
+/** Formats an absolute epoch (seconds) as the Europe/Rome wall-clock "HH:MM". */
+function epochToRomeHHMM(epochSec) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date(epochSec * 1000));
+  let hh = '00';
+  let mm = '00';
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].type === 'hour') hh = parts[i].value;
+    else if (parts[i].type === 'minute') mm = parts[i].value;
+  }
+  if (hh === '24') hh = '00';
+  return hh + ':' + mm;
+}
+
 /**
  * Returns the current wall-clock context in Europe/Rome:
  *   { dateNum: YYYYMMDD, weekday: 0..6 (Sun=0), secondsOfDay }
@@ -550,6 +565,9 @@ async function getDepartures(stopIds) {
       let minutesRemaining = Math.floor((row.depSec - nowSec) / 60);
       let status = 'scheduled';
       let delayMin = null;
+      // Displayed clock time: scheduled by default, but for live departures we
+      // show the *predicted* time so the HH:MM matches the countdown (and Moovit).
+      let displayTime = secondsToHHMM(row.depSec);
 
       if (rt) {
         const hit = rt.byTripStop[row.tripId + '|' + row.stopId];
@@ -557,8 +575,10 @@ async function getDepartures(stopIds) {
           status = 'realtime';
           if (hit.timeEpochSec) {
             minutesRemaining = Math.floor((hit.timeEpochSec * 1000 - nowMs) / 60000);
+            displayTime = epochToRomeHHMM(hit.timeEpochSec);
           } else if (hit.delaySec !== null && hit.delaySec !== undefined) {
             minutesRemaining = Math.floor((row.depSec - nowSec + hit.delaySec) / 60);
+            displayTime = secondsToHHMM(row.depSec + hit.delaySec);
           }
           if (hit.delaySec !== null && hit.delaySec !== undefined) {
             delayMin = Math.round(hit.delaySec / 60);
@@ -569,7 +589,7 @@ async function getDepartures(stopIds) {
       return {
         line: row.line,
         direction: row.headsign,
-        time: secondsToHHMM(row.depSec),
+        time: displayTime,
         minutesRemaining: minutesRemaining,
         status: status,
         lineColor: row.lineColor,
