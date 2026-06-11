@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 
@@ -54,6 +54,9 @@
       </div>
     </header>
 
+    <!-- Service alerts banner (strikes, detours...) - filled by /api/alerts -->
+    <div id="alerts-banner" class="alerts-banner" style="display: none;"></div>
+
     <!-- Tab Navigation Bar -->
     <nav class="tabs-navigation">
       <button id="tab-btn-lens" class="tab-btn active" onclick="switchTab('lens')">
@@ -67,6 +70,9 @@
       </button>
       <button id="tab-btn-line" class="tab-btn" onclick="switchTab('line')">
         <span class="tab-btn-icon">⏱️</span> Linea Live
+      </button>
+      <button id="tab-btn-settings" class="tab-btn tab-btn-settings" onclick="openSettings()" title="Configura le tue fermate, direzioni e linee">
+        <span class="tab-btn-icon">⚙️</span> Imposta
       </button>
     </nav>
 
@@ -88,7 +94,7 @@
                 <span class="toggle-label">Programmati</span>
               </label>
             </div>
-            <p class="lens-subheader">Priorità arrivi per linee preferite (81, 85, 87, 360), nodo Carlo Felice e tutti i bus notturni live</p>
+            <p id="lens-subheader" class="lens-subheader">Priorità arrivi per linee preferite (81, 85, 87, 360), nodo Carlo Felice e tutti i bus notturni live</p>
           </div>
           
           <div id="lens-list" class="lens-list">
@@ -199,7 +205,7 @@
               <span class="toggle-label">Programmati</span>
             </label>
           </div>
-          <p class="lens-subheader">Tutti i bus principali su un'unica linea (81, 85, 87, 360, nodo Carlo Felice + bus notturni). Più vicino a 📍 = in arrivo prima.</p>
+          <p id="line-subheader" class="lens-subheader">Gli stessi bus dell'ATAC Lens su un'unica linea temporale: prossimi 20 minuti. Più vicino a 📍 = in arrivo prima.</p>
           <div id="line-list" class="line-list">
             <div class="skeleton-row"></div>
             <div class="skeleton-row"></div>
@@ -216,13 +222,55 @@
         <span class="dot-active"></span> Dashboard attiva su porta local/VPS
       </div>
       <div class="footer-right">
-        Basato su dati forniti da <strong>Transitland</strong>
+        Dati: <strong>Roma Servizi per la Mobilità</strong> (GTFS / GTFS-RT) · <strong>Transitland</strong>
       </div>
     </footer>
 
   </div>
 
+  <!-- Settings modal: custom stops, direction filters, preferred lines,
+       walking times. Saved per browser; shareable via "Copia link config". -->
+  <div id="settings-overlay" class="settings-overlay">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>⚙️ Imposta la tua dashboard</h2>
+        <button class="settings-close" onclick="closeSettings()" title="Chiudi">✕</button>
+      </div>
+
+      <div class="settings-body">
+        <section class="settings-section">
+          <h3>Le mie fermate</h3>
+          <p class="settings-hint">
+            Cerca una fermata per nome o inserisci il codice ATAC scritto sul palo (es. <strong>70030</strong>).
+            Le fermate nuove possono richiedere ~30 secondi al primo caricamento.
+          </p>
+          <div class="stop-search-wrap">
+            <input id="stop-search" type="text" placeholder="🔍 Cerca per nome o codice (es. 'Colosseo' o 70030)…"
+                   oninput="onStopSearchInput()" autocomplete="off">
+            <div id="stop-search-results" class="stop-search-results" style="display: none;"></div>
+          </div>
+          <div id="settings-stops" class="settings-stops"></div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Linee preferite (ATAC Lens &amp; Linea Live)</h3>
+          <input id="settings-lines" type="text" placeholder="es. 81, 85, 87, 360">
+          <label class="settings-opt settings-night-opt">
+            <input type="checkbox" id="settings-night" checked> Mostra sempre i bus notturni (n…)
+          </label>
+        </section>
+      </div>
+
+      <div class="settings-footer">
+        <button class="settings-btn primary" onclick="saveSettings()">💾 Salva</button>
+        <button class="settings-btn" id="copy-link-btn" onclick="copyConfigLink()">🔗 Copia link config</button>
+        <button class="settings-btn danger" onclick="resetSettings()" title="Torna alle fermate predefinite del server">↩️ Predefiniti</button>
+        <button class="settings-btn" onclick="closeSettings()">Annulla</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Javascript Logic -->
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

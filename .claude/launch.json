@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "transit",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=5050", "node", "server.js"],
+      "port": 5050,
+      "autoPort": false
+    }
+  ]
+}

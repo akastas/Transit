@@ -9,6 +9,11 @@ A self-hosted, lightweight, and robust public transit arrivals dashboard designe
 - **Transit Branding**: Dynamically matches official Rome/ATAC line colors (e.g., green for Tram 8, red for Tram 3) using hex colors fetched directly from the API.
 - **Resilient Architecture**: Fails gracefully. If Rome's transit feed lags or a stop fails, only that stop card enters an error state; the server remains online and the rest of the board continues to function.
 - **Smart Mapping & Caching**: Supports both worldwide Onestop IDs (e.g. `s-sr2yk502s5-plebiscito`) and local 5-digit ATAC stop codes (e.g. `70030`). Local codes are automatically resolved to Onestop IDs on the first request and cached in-memory.
+- **Personal Boards (⚙️ Imposta)**: Every user can build their own ATAC Lens straight from the browser — search Rome stops by name or code, add direction filters, mark "hub" stops (all lines shown) and pick preferred lines. The config is saved per browser (localStorage) and the server is queried with `/api/transit?stops=...`; nothing on the server changes.
+- **Shareable Config Links**: One click on *Copia link config* produces a URL with the whole setup encoded in the `#cfg=` fragment — open it on any other device (e.g. the wall tablet) and that board is instantly configured there too.
+- **"Esci ora" Walking Assistant**: Set how many minutes you walk to each stop and every departure tells you whether to leave now (`🚶 esci ora!`), how long you can wait (`🚶 esci tra 7'`), or that it's not catchable (`🚶 troppo tardi`).
+- **Service Alerts Banner**: Active ATAC alerts (strikes, detours, closures) from Roma Mobilità's GTFS-RT service-alerts feed appear in a collapsible amber banner, filtered to the lines and stops your board actually shows.
+- **Linea Live**: A single 20-minute timeline rail where every monitored bus drives toward the 📍 pin — the closer to the pin, the sooner it arrives.
 
 ---
 
@@ -60,6 +65,20 @@ Install the project dependencies in your project directory:
 ```bash
 npm install
 ```
+
+---
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/transit` | Departures for the server's default stops. |
+| `GET /api/transit?stops=70030,72013` | Departures for any custom stop list (max 10; ATAC stop codes or GTFS `stop_id`s). Used by the ⚙️ personal boards. |
+| `GET /api/stops?q=colosseo` | Search Rome's stops by name substring or code prefix (accent-insensitive). Returns `{ id, code, name, lat, lon }`. Direct mode only. |
+| `GET /api/alerts` | Active ATAC service alerts (GTFS-RT), with `route_id`s mapped to line names. Direct mode only. |
+| `GET /api/debug` | Per-stop diagnostics (schedule rows today, realtime matches). Also accepts `?stops=`. |
+
+Notes on custom stops: the schedule cache is built around the union of every stop code ever requested, so the first request for a brand-new stop triggers a GTFS rebuild (~30 s) and answers that stop with a friendly "in caricamento" error until the rebuild lands (the dashboard's next auto-refresh picks it up). The server tracks at most 60 distinct codes and rebuilds at most once every 20 s.
 
 ---
 

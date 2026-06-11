@@ -1,11 +1,18 @@
 /**
- * server.js - Backend Proxy for Rome Public Transit Dashboard (Transitland Edition)
- * 
- * Exposes a single GET /api/transit endpoint.
- * Fetches departures from Transitland REST API v2 for exactly 4 stops.
- * Seamlessly resolves 5-digit local ATAC codes to worldwide Onestop IDs,
- * caching results in memory to minimize API queries.
- * 
+ * server.js - Backend Proxy for Rome Public Transit Dashboard
+ *
+ * Endpoints:
+ *   GET /api/transit            departures for the configured default stops
+ *   GET /api/transit?stops=...  departures for a custom comma-separated stop list
+ *                               (lets every browser/tablet run its own board)
+ *   GET /api/stops?q=...        search Rome stops by name or code (direct mode)
+ *   GET /api/alerts             active ATAC service alerts (GTFS-RT, direct mode)
+ *   GET /api/debug              per-stop schedule/realtime diagnostics
+ *
+ * Default data source reads Roma Mobilita's GTFS + GTFS-RT feeds directly; a
+ * legacy Transitland REST proxy remains available (DATA_SOURCE=transitland),
+ * which seamlessly resolves 5-digit local ATAC codes to worldwide Onestop IDs.
+ *
  * Fully handles timezone arithmetic, route branding colors, live GPS indicators,
  * and isolated station error recovery.
  */
@@ -35,6 +42,8 @@ const CONFIG = {
   // so the Commute Radar shows ~the next hour. Shared by both data sources.
   LOOKAHEAD_MIN: (function () { const v = parseInt(process.env.LOOKAHEAD_MIN, 10); return (!isNaN(v) && v > 0) ? v : 60; })(),
   MIN_DEPARTURES: 5,
+  // Max stops a single ?stops= request may ask for (keeps custom boards sane).
+  MAX_CUSTOM_STOPS: 10,
   TRANSITLAND_APIKEY: process.env.TRANSITLAND_APIKEY,
   TRANSITLAND_FEED: process.env.TRANSITLAND_FEED || 'f-sr-atac~romatpl~trenitalia',
   // Exactly 4 Stop IDs from environment variables, with fallback Rome/ATAC example stop codes
@@ -101,14 +110,41 @@ async function resolveOnestopId(stopId, apikey, feedId) {
 }
 
 /**
+ * Parses the optional ?stops=ID1,ID2,... query into a sanitized stop list.
+ * Returns null when the parameter is absent/unusable, so callers fall back to
+ * the server's configured default stops.
+ */
+function parseStopsParam(req) {
+  const raw = req.query && req.query.stops;
+  if (!raw || typeof raw !== 'string') return null;
+
+  const seen = {};
+  const out = [];
+  raw.split(',').forEach(function (part) {
+    const code = part.trim();
+    if (!/^[A-Za-z0-9_-]{1,24}$/.test(code)) return; // GTFS ids are simple tokens
+    if (seen[code]) return;
+    seen[code] = true;
+    out.push(code);
+  });
+
+  if (out.length === 0) return null;
+  return out.slice(0, CONFIG.MAX_CUSTOM_STOPS);
+}
+
+/**
  * GET /api/transit
- * Query departures across all 4 configured stations.
+ * Query departures for the configured stations, or for a custom set passed as
+ * ?stops=70030,72013 (stop codes or GTFS stop_ids) so any user can run their
+ * own board without touching the server's .env.
  */
 app.get('/api/transit', async (req, res) => {
+  const stopIds = parseStopsParam(req) || CONFIG.STOP_IDS;
+
   // Preferred path: read Rome's source feeds directly (fresh schedule + GTFS-RT).
   if (CONFIG.DATA_SOURCE === 'direct') {
     try {
-      const results = await gtfsDirect.getDepartures(CONFIG.STOP_IDS);
+      const results = await gtfsDirect.getDepartures(stopIds);
       return res.json(results);
     } catch (err) {
       console.error('[Direct] Failed to build departures:', err.message);
@@ -128,7 +164,7 @@ app.get('/api/transit', async (req, res) => {
   const feedId = CONFIG.TRANSITLAND_FEED;
 
   // Query stops concurrently
-  const fetchPromises = CONFIG.STOP_IDS.map(async (rawStopId) => {
+  const fetchPromises = stopIds.map(async (rawStopId) => {
     try {
       // 1. Resolve stop code (e.g. "70030") to Onestop ID (e.g. "s-sr2yk7q0y2-termini")
       const onestopId = await resolveOnestopId(rawStopId, apikey, feedId);
@@ -258,10 +294,12 @@ app.get('/api/transit', async (req, res) => {
  * being matched on Transitland's side (feed issue), not a bug in this app.
  */
 app.get('/api/debug', async (req, res) => {
+  const debugStopIds = parseStopsParam(req) || CONFIG.STOP_IDS;
+
   // In direct mode, report from Rome's source feeds (scheduled-today + RT matches).
   if (CONFIG.DATA_SOURCE === 'direct') {
     try {
-      const diag = await gtfsDirect.getDiagnostics(CONFIG.STOP_IDS);
+      const diag = await gtfsDirect.getDiagnostics(debugStopIds);
       return res.json(diag);
     } catch (err) {
       return res.status(500).json({ status: 'error', message: err.message });
@@ -275,7 +313,7 @@ app.get('/api/debug', async (req, res) => {
   const apikey = CONFIG.TRANSITLAND_APIKEY;
   const feedId = CONFIG.TRANSITLAND_FEED;
 
-  const report = await Promise.all(CONFIG.STOP_IDS.map(async (rawStopId) => {
+  const report = await Promise.all(debugStopIds.map(async (rawStopId) => {
     try {
       const onestopId = await resolveOnestopId(rawStopId, apikey, feedId);
       const departuresUrl = `https://transit.land/api/v2/rest/stops/${onestopId}/departures?apikey=${apikey}&limit=40`;
@@ -323,6 +361,58 @@ app.get('/api/debug', async (req, res) => {
     checkedAt: new Date().toISOString(),
     stops: report
   });
+});
+
+/**
+ * GET /api/stops?q=colosseo (or ?q=70030)
+ * Searches Rome's stops by name substring or code prefix, so users can find
+ * their own stop codes when configuring a custom board. Direct mode only
+ * (the search index comes from the GTFS stops.txt kept in memory).
+ */
+app.get('/api/stops', async (req, res) => {
+  if (CONFIG.DATA_SOURCE !== 'direct') {
+    return res.status(501).json({
+      status: 'error',
+      message: 'La ricerca fermate richiede DATA_SOURCE=direct. Inserisci il codice fermata manualmente.'
+    });
+  }
+
+  const q = (req.query.q || '').toString().trim();
+  if (q.length < 2) {
+    return res.json({ status: 'success', stops: [] });
+  }
+
+  let limit = parseInt(req.query.limit, 10);
+  if (isNaN(limit) || limit <= 0) limit = 12;
+  limit = Math.min(limit, 25);
+
+  try {
+    const stops = await gtfsDirect.searchStops(q, limit);
+    res.json({ status: 'success', stops });
+  } catch (err) {
+    console.error('[Stops] Search failed:', err.message);
+    res.status(500).json({ status: 'error', message: 'Ricerca fermate non disponibile: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/alerts
+ * Active ATAC service alerts from Roma Mobilita's GTFS-RT feed (strikes,
+ * detours, closures), with route_ids mapped to line names where possible.
+ * The frontend filters them down to the lines/stops it is showing.
+ */
+app.get('/api/alerts', async (req, res) => {
+  if (CONFIG.DATA_SOURCE !== 'direct') {
+    return res.json({ status: 'success', alerts: [], note: 'Avvisi disponibili solo con DATA_SOURCE=direct.' });
+  }
+
+  try {
+    const payload = await gtfsDirect.getAlerts();
+    res.json(payload);
+  } catch (err) {
+    console.error('[Alerts] Fetch failed:', err.message);
+    res.status(500).json({ status: 'error', message: 'Impossibile leggere gli avvisi: ' + err.message, alerts: [] });
+  }
 });
 
 // Start proxy server

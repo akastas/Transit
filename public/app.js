@@ -1,23 +1,40 @@
 /**
  * app.js - Frontend client logic for Rome Transit Dashboard (ATAC Lens & Tabs)
- * 
+ *
  * Functions:
  * 1. Digital clock & date update (Rome/Italy timezone formatting)
  * 2. Asynchronous transit data retrieval from backend (/api/transit)
  * 3. 45-second count-down timer with animated visual progress bar
- * 4. Tab routing switcher ('lens' vs 'board' views)
- * 5. ATAC Lens commute filter (Lines 81, 85, 87, 360 & all lines at Carlo Felice)
- * 6. Interactive opposite direction toggle for Card 2 in Board view
+ * 4. Tab routing switcher ('lens' / 'board' / 'metro' / 'line' views)
+ * 5. ATAC Lens commute filter (preferred lines, hub stops & night buses)
+ * 6. Interactive opposite direction toggle for Card 2 in Board view (default setup)
+ * 7. Custom boards: the ⚙️ settings panel lets any user pick their own stops,
+ *    direction filters, lines and walking times (saved per browser in
+ *    localStorage, shareable via #cfg= links); /api/transit?stops=... follows
+ * 8. "Esci ora" walking-time assistant per departure
+ * 9. ATAC service alerts banner fed by /api/alerts
  */
+
+// Backend origin: fall back to port 5050 if loading static files on standard dev ports or via file://
+const API_BASE = (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '5050' && window.location.port !== '5000'))
+  ? 'http://localhost:5050'
+  : '';
 
 // Dashboard State Configurations
 const CONFIG = {
   REFRESH_INTERVAL_SEC: 45,
-  // Automatically fallback to port 5050 if loading static files on standard dev ports or via file://
-  API_URL: (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '5050' && window.location.port !== '5000'))
-    ? 'http://localhost:5050/api/transit'
-    : '/api/transit'
+  ALERTS_REFRESH_SEC: 120
 };
+
+// Built-in defaults mirroring the server's .env stops (the original home board).
+const DEFAULTS = {
+  LENS_LINES: ['81', '85', '87', '360'],
+  HUB_STOPS: ['72100', '81993'],   // Carlo Felice hub: every line at these stops matters
+  METRO_STOP: 'CP22'
+};
+
+// Linea Live window: the rail spans the next 20 minutes (right edge = now).
+const LINE_SCALE_MIN = 20;
 
 // Global State
 let countdownTime = CONFIG.REFRESH_INTERVAL_SEC;
@@ -28,6 +45,187 @@ let countdownTimerId = null;
 let activeTab = 'lens';      // Selected tab view: 'lens' (default) or 'board'
 let card1ShowAlt = false;    // Toggles between index 1 (72100) and index 4 (81993) for Card 2
 let lastTransitData = null;  // Holds client-side cache of last API fetch
+
+// ---------------------------------------------------------------------------
+// User configuration: lets anyone run their own board (stops, direction
+// filters, preferred lines, walking times) without touching the server.
+// Stored per browser in localStorage; shareable through a #cfg= link.
+// ---------------------------------------------------------------------------
+const CONFIG_STORAGE_KEY = 'transit.userConfig.v1';
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+/** Lowercases and strips accents for forgiving text matching. */
+function normalizeText(s) {
+  let t = String(s ?? '').toLowerCase();
+  try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) { /* keep raw */ }
+  return t;
+}
+
+/** Validates and normalizes a raw config object; null when nothing useful. */
+function sanitizeConfig(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = { stops: [], lines: [], showNight: raw.showNight !== false };
+  const seen = {};
+
+  (Array.isArray(raw.stops) ? raw.stops : []).slice(0, 10).forEach(s => {
+    if (!s) return;
+    const id = String(s.id || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,24}$/.test(id) || seen[id]) return;
+    seen[id] = true;
+    const walk = parseInt(s.walk, 10);
+    out.stops.push({
+      id,
+      name: String(s.name || '').slice(0, 60),
+      hub: !!s.hub,                                   // hub = every line at this stop shows in the Lens
+      dir: String(s.dir || '').slice(0, 40),          // headsign substring filter ("direzione contiene")
+      walk: (!isNaN(walk) && walk > 0 && walk <= 120) ? walk : 0
+    });
+  });
+
+  (Array.isArray(raw.lines) ? raw.lines : []).slice(0, 20).forEach(l => {
+    const line = String(l || '').trim();
+    if (line && line.length <= 8 && !out.lines.includes(line)) out.lines.push(line);
+  });
+
+  if (out.stops.length === 0 && out.lines.length === 0) return null;
+  return out;
+}
+
+/** Reads a shared configuration from a #cfg= link (base64url JSON). */
+function readConfigFromHash() {
+  const match = window.location.hash.match(/[#&]cfg=([A-Za-z0-9\-_]+)/);
+  if (!match) return null;
+  try {
+    let b64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const json = decodeURIComponent(escape(atob(b64)));
+    return sanitizeConfig(JSON.parse(json));
+  } catch (err) {
+    console.warn('[Config] Link di configurazione non valido:', err);
+    return null;
+  }
+}
+
+function loadUserConfig() {
+  // A shared #cfg= link wins, gets persisted, then the hash is cleaned up.
+  const fromHash = readConfigFromHash();
+  if (fromHash) {
+    try { localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(fromHash)); } catch (e) { /* private mode */ }
+    try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) { /* ignore */ }
+    return fromHash;
+  }
+  try {
+    const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    if (raw) return sanitizeConfig(JSON.parse(raw));
+  } catch (e) {
+    console.warn('[Config] Configurazione salvata illeggibile:', e);
+  }
+  return null;
+}
+
+function persistUserConfig(cfg) {
+  userConfig = cfg;
+  try {
+    if (cfg) localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+    else localStorage.removeItem(CONFIG_STORAGE_KEY);
+  } catch (e) {
+    console.warn('[Config] Impossibile salvare la configurazione:', e);
+  }
+}
+
+let userConfig = loadUserConfig();
+
+// --- Config accessors (every view reads through these) ---
+function customStops() {
+  return (userConfig && userConfig.stops && userConfig.stops.length) ? userConfig.stops : null;
+}
+function customStopIds() {
+  const stops = customStops();
+  return stops ? stops.map(s => String(s.id)) : null;
+}
+function getLensLines() {
+  return (userConfig && userConfig.lines && userConfig.lines.length) ? userConfig.lines : DEFAULTS.LENS_LINES;
+}
+function getHubStopIds() {
+  const stops = customStops();
+  return stops ? stops.filter(s => s.hub).map(s => String(s.id)) : DEFAULTS.HUB_STOPS;
+}
+function showNightBuses() {
+  return !userConfig || userConfig.showNight !== false;
+}
+function getWalkMinutes(stopId) {
+  const stops = customStops();
+  if (!stops) return null;
+  const stop = stops.find(s => String(s.id) === String(stopId));
+  return (stop && stop.walk > 0) ? stop.walk : null;
+}
+function transitApiUrl() {
+  const ids = customStopIds();
+  return API_BASE + '/api/transit' + (ids ? `?stops=${ids.join(',')}` : '');
+}
+
+/** Applies per-stop direction filters (substring match on the headsign). */
+function applyDirectionFilters(stations) {
+  const stops = customStops();
+  if (!stops || !Array.isArray(stations)) return stations;
+
+  const filters = {};
+  stops.forEach(s => { if (s.dir) filters[String(s.id)] = normalizeText(s.dir); });
+  if (Object.keys(filters).length === 0) return stations;
+
+  return stations.map(station => {
+    const needle = station && filters[String(station.stopId)];
+    if (!needle || !Array.isArray(station.departures)) return station;
+    return {
+      ...station,
+      departures: station.departures.filter(dep => normalizeText(dep.direction).includes(needle))
+    };
+  });
+}
+
+/**
+ * "Esci ora" walking-time assistant: when a stop has a configured walking
+ * time, every departure shows whether you can still catch it leaving now.
+ */
+function walkBadgeHtml(dep, stopId) {
+  const walkMin = getWalkMinutes(stopId);
+  if (walkMin === null) return '';
+  const leaveIn = dep.minutesRemaining - walkMin;
+  if (leaveIn < 0) return `<span class="walk-badge walk-missed" title="${walkMin} min a piedi">🚶 troppo tardi</span>`;
+  if (leaveIn <= 1) return `<span class="walk-badge walk-now" title="${walkMin} min a piedi">🚶 esci ora!</span>`;
+  return `<span class="walk-badge walk-future" title="${walkMin} min a piedi">🚶 esci tra ${leaveIn}'</span>`;
+}
+
+/** Applies config-dependent chrome: metro tab visibility and subheader texts. */
+function applyConfigSideEffects() {
+  const stops = customStops();
+
+  // The Metro C tab is wired to the San Giovanni stop: hide it when a custom
+  // board doesn't include that stop.
+  const metroBtn = document.getElementById('tab-btn-metro');
+  const hasMetro = !stops || stops.some(s => String(s.id).toUpperCase() === DEFAULTS.METRO_STOP);
+  if (metroBtn) metroBtn.style.display = hasMetro ? '' : 'none';
+  if (!hasMetro && activeTab === 'metro') switchTab('lens');
+
+  // Subheaders describe what is actually being monitored.
+  const lines = getLensLines().join(', ');
+  const hubCount = getHubStopIds().length;
+  const lensSub = document.getElementById('lens-subheader');
+  if (lensSub) {
+    lensSub.textContent = `Priorità arrivi per linee preferite (${lines})`
+      + (hubCount > 0 ? `, ${hubCount === 1 ? '1 fermata hub' : hubCount + ' fermate hub'} (tutte le linee)` : '')
+      + (showNightBuses() ? ' e bus notturni live' : '');
+  }
+  const lineSub = document.getElementById('line-subheader');
+  if (lineSub) {
+    lineSub.textContent = `Gli stessi bus dell'ATAC Lens su un'unica linea temporale: prossimi ${LINE_SCALE_MIN} minuti. Più vicino a 📍 = in arrivo prima.`;
+  }
+}
 
 // DOM Elements cache
 const dom = {
@@ -73,19 +271,21 @@ function initClock() {
  */
 async function fetchTransitData() {
   try {
-    const response = await fetch(CONFIG.API_URL);
+    const response = await fetch(transitApiUrl());
     if (!response.ok) {
       throw new Error(`Server returned HTTP ${response.status}`);
     }
-    
-    const transitData = await response.json();
+
+    let transitData = await response.json();
+    transitData = applyDirectionFilters(transitData);
     lastTransitData = transitData; // Store cache for instantaneous direction toggles
-    
+
     // Update all views
     renderLensView(transitData);
     renderBoardView(transitData);
     renderMetroView(transitData);
     renderLineView(transitData);
+    renderAlerts(); // re-match alerts against the lines now on screen
   } catch (error) {
     console.error('Failed to retrieve transit data:', error);
     renderGeneralError(error.message);
@@ -140,7 +340,7 @@ function renderLensView(stations) {
   if (!dom.lensList) return;
   dom.lensList.innerHTML = '';
 
-  if (!stations || !Array.isArray(stations) || stations.length < 4) {
+  if (!stations || !Array.isArray(stations) || stations.length === 0) {
     dom.lensList.innerHTML = `<p class="error-message">Nessun dato disponibile per il Radar.</p>`;
     return;
   }
@@ -148,7 +348,10 @@ function renderLensView(stations) {
   const checkbox = document.getElementById('lens-show-scheduled');
   const showScheduled = checkbox ? checkbox.checked : false;
 
-  const importantLines = ['81', '85', '87', '360'];
+  // Preferred lines / hub stops come from the user's config (or the defaults).
+  const importantLines = getLensLines();
+  const hubStopIds = getHubStopIds();
+  const nightIncluded = showNightBuses();
   let aggregatedDepartures = [];
 
   // Loop through all retrieved stations (including default & alternate ones)
@@ -157,12 +360,12 @@ function renderLensView(stations) {
 
     station.departures.forEach(dep => {
       const isImportantLine = importantLines.includes(dep.line);
-      // Includes both directions of the Porta S. Giovanni / Carlo Felice hub
-      const isCarloFeliceHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
+      // Hub stops surface every line serving them (e.g. the Carlo Felice hub)
+      const isHubStop = hubStopIds.includes(String(station.stopId));
       // Night service: the daytime lines stop running, so surface every night bus (n...).
-      const isNightBus = isNightLine(dep.line);
+      const isNightBus = nightIncluded && isNightLine(dep.line);
 
-      if (isImportantLine || isCarloFeliceHub || isNightBus) {
+      if (isImportantLine || isHubStop || isNightBus) {
         // Filter out scheduled departures if toggle is unchecked
         if (!showScheduled && dep.status !== 'realtime') {
           return;
@@ -181,11 +384,14 @@ function renderLensView(stations) {
   aggregatedDepartures.sort((a, b) => a.minutesRemaining - b.minutesRemaining);
 
   if (aggregatedDepartures.length === 0) {
+    const hubCount = hubStopIds.length;
+    const monitoredHint = `Vengono monitorate le linee ${escapeHtml(importantLines.join(', '))}`
+      + (hubCount > 0 ? ` e ${hubCount === 1 ? '1 fermata hub' : hubCount + ' fermate hub'}` : '');
     dom.lensList.innerHTML = `
       <div class="no-departures">
         <span class="no-departures-icon">📡</span>
         <p>Nessun bus importante rilevato nei paraggi</p>
-        <span style="font-size: 0.8rem;">Vengono monitorate le linee 81, 85, 87, 360 e il nodo Carlo Felice</span>
+        <span style="font-size: 0.8rem;">${monitoredHint}</span>
       </div>
     `;
     return;
@@ -233,6 +439,7 @@ function renderLensView(stations) {
           Arrivo a <strong>${dep.stationName}</strong>
           <span class="status-badge ${badgeClass}" style="margin-left: 6px;">${badgeLabel}</span>
           ${delayBadge}
+          ${walkBadgeHtml(dep, dep.stationStopId)}
         </span>
       </div>
       <div class="arrival-countdown">
@@ -250,12 +457,178 @@ function renderLensView(stations) {
 }
 
 /**
- * TAB 2: Renders the 4-card Station Board View.
+ * TAB 2: Renders the Station Board View.
+ * Default setup: maps 5 backend stops + metro into 4 fixed cards (with the
+ * "Dir. Opposta" toggle on Card 2). Custom boards: one card per configured stop.
  */
+const TOGGLE_BTN_HTML = `<button class="toggle-direction-btn" onclick="toggleCard1Direction(event)">
+           <span class="btn-icon">🔄</span> Dir. Opposta
+         </button>`;
+
+/** Builds one departure row of a station card (shared default/custom markup). */
+function boardRowHtml(dep, stopId) {
+  const isLive = dep.status === 'realtime';
+
+  // Neon green styling for live GPS data, muted amber/gray for timetable estimate
+  const timeClass = isLive ? 'realtime-depart' : 'scheduled-depart';
+  const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
+  const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
+
+  // Custom line styling if provided by API, otherwise default grey
+  const lineStyle = dep.lineColor
+    ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
+    : '';
+
+  let animationIndicator = '';
+  if (dep.minutesRemaining === 1) {
+    animationIndicator = getRunnerSvg();
+  } else if (dep.minutesRemaining === 0) {
+    animationIndicator = getPartingBusSvg();
+  }
+
+  let delayBadge = '';
+  if (dep.delayMin !== undefined && dep.delayMin !== null) {
+    if (dep.delayMin > 0) {
+      delayBadge = `<span class="delay-badge delay-late">+${dep.delayMin}m</span>`;
+    } else if (dep.delayMin < 0) {
+      delayBadge = `<span class="delay-badge delay-early">-${Math.abs(dep.delayMin)}m</span>`;
+    } else {
+      delayBadge = `<span class="delay-badge delay-ontime">in orario</span>`;
+    }
+  }
+
+  return `
+    <div class="departure-row">
+      <div class="line-identifier" style="${lineStyle}">
+        ${dep.line}
+      </div>
+      <div class="route-details">
+        <span class="route-direction"><span class="dir-prefix">dir.</span>${dep.direction}</span>
+        <span class="route-time-scheduled">
+          Orario: <strong>${dep.time}</strong>
+          <span class="status-badge ${badgeClass}">${badgeLabel}</span>
+          ${delayBadge}
+          ${walkBadgeHtml(dep, stopId)}
+        </span>
+      </div>
+      <div class="arrival-countdown">
+        <div class="animation-container">
+          ${animationIndicator}
+        </div>
+        <span class="arrival-minutes ${timeClass}">
+          ${dep.minutesRemaining}
+        </span>
+        <span class="arrival-unit">min</span>
+      </div>
+    </div>
+  `;
+}
+
+/** Builds a full station card element (header, rows, error & empty states). */
+function buildStationCard(station, opts) {
+  opts = opts || {};
+  const toggleBtnHtml = opts.toggleBtnHtml || '';
+
+  const card = document.createElement('div');
+  card.className = 'stop-card';
+  if (opts.cardId) card.id = opts.cardId;
+
+  // Handle individual stop errors
+  if (station.status === 'error') {
+    card.classList.add('error-card');
+    card.innerHTML = `
+      <div class="stop-header">
+        <div class="stop-info">
+          <span class="stop-name">${station.stopName}</span>
+          <span class="stop-code">ID: ${station.stopId}</span>
+        </div>
+        <div class="stop-header-actions">
+          ${toggleBtnHtml}
+          <span class="stop-badge" style="border-color: rgba(255, 74, 74, 0.4); color: #ff4a4a;">Errore</span>
+        </div>
+      </div>
+      <div class="error-message">
+        <span class="no-departures-icon">⚠️</span>
+        <span>Impossibile caricare le partenze</span>
+        <span style="font-size: 0.75rem; opacity: 0.7;">${station.message || 'Errore di rete'}</span>
+      </div>
+    `;
+    return card;
+  }
+
+  // Apply the live-only filter unless the Programmati toggle is on.
+  const allDepartures = station.departures || [];
+  const visibleDepartures = allDepartures.filter(dep => opts.showScheduled || dep.status === 'realtime');
+  const hiddenScheduledCount = allDepartures.length - visibleDepartures.length;
+
+  const departuresCount = visibleDepartures.length;
+  const badgeText = departuresCount === 1 ? '1 arrivo' : `${departuresCount} arrivi`;
+
+  let departuresHtml = '';
+  if (departuresCount === 0) {
+    // Empty state inside card. When we're hiding scheduled-only departures,
+    // point the user at the Programmati toggle instead of implying no service.
+    const emptyHint = (!opts.showScheduled && hiddenScheduledCount > 0)
+      ? 'Nessun arrivo in tempo reale · attiva <strong>Programmati</strong> per gli orari'
+      : 'Verifica gli orari più tardi';
+    departuresHtml = `
+      <div class="no-departures">
+        <span class="no-departures-icon">⏳</span>
+        <p>Nessun bus o tram in arrivo</p>
+        <span style="font-size: 0.8rem;">${emptyHint}</span>
+      </div>
+    `;
+  } else {
+    departuresHtml = `
+      <div class="departures-list">
+        ${visibleDepartures.map(dep => boardRowHtml(dep, station.stopId)).join('')}
+      </div>
+    `;
+  }
+
+  // Combine Header and Body inside the card
+  card.innerHTML = `
+    <div class="stop-header">
+      <div class="stop-info">
+        <span class="stop-name">${station.stopName}</span>
+        <span class="stop-code">ID: ${station.stopId}</span>
+      </div>
+      <div class="stop-header-actions">
+        ${toggleBtnHtml}
+        <span class="stop-badge">${badgeText}</span>
+      </div>
+    </div>
+    ${departuresHtml}
+  `;
+
+  return card;
+}
+
 function renderBoardView(stations) {
   dom.grid = document.getElementById('dashboard-grid');
   if (!dom.grid) return;
-  dom.grid.innerHTML = ''; 
+  dom.grid.innerHTML = '';
+
+  // Honour the "Programmati" toggle: off (default) shows only live arrivals.
+  const boardCheckbox = document.getElementById('board-show-scheduled');
+  const showScheduled = boardCheckbox ? boardCheckbox.checked : false;
+
+  // Custom boards: one card per configured stop, in the user's order.
+  if (customStops()) {
+    if (!stations || !Array.isArray(stations) || stations.length === 0) {
+      dom.grid.innerHTML = `
+        <div class="stop-card" style="grid-column: span 2; text-align: center; padding: 3rem;">
+          <p class="error-message">Nessuna stazione configurata o nessun dato disponibile.</p>
+        </div>
+      `;
+      return;
+    }
+    stations.forEach((station, displayIndex) => {
+      if (!station) return;
+      dom.grid.appendChild(buildStationCard(station, { cardId: `card-${displayIndex}`, showScheduled }));
+    });
+    return;
+  }
 
   if (!stations || !Array.isArray(stations) || stations.length < 4) {
     dom.grid.innerHTML = `
@@ -266,17 +639,13 @@ function renderBoardView(stations) {
     return;
   }
 
-  // Honour the "Programmati" toggle: off (default) shows only live arrivals.
-  const boardCheckbox = document.getElementById('board-show-scheduled');
-  const showScheduled = boardCheckbox ? boardCheckbox.checked : false;
-
   // Map 5 backend stop endpoints into exactly 4 display cards matching custom ordering:
   // Card 0 -> STOP_ID_1 (index 0, e.g. 71223)
   // Card 1 -> STOP_ID_2 (index 1, e.g. 72100) OR STOP_ID_2_ALT (index 4, e.g. 81993)
   // Card 2 -> STOP_ID_3 (index 2, e.g. 81953)
   // Card 3 -> STOP_ID_4 (index 3, e.g. 70335)
   const activeStation2 = (card1ShowAlt && stations[4]) ? stations[4] : stations[1];
-  
+
   const cardStations = [
     { data: stations[0], originalIndex: 0 },
     { data: activeStation2, originalIndex: (card1ShowAlt && stations[4]) ? 4 : 1, isTogglable: !!stations[4] },
@@ -287,152 +656,11 @@ function renderBoardView(stations) {
   cardStations.forEach((cardConfig, displayIndex) => {
     const station = cardConfig.data;
     if (!station) return;
-
-    const card = document.createElement('div');
-    card.className = 'stop-card';
-    card.id = `card-${displayIndex}`;
-
-    // Handle individual stop errors
-    if (station.status === 'error') {
-      card.classList.add('error-card');
-      
-      const toggleBtnHtml = cardConfig.isTogglable
-        ? `<button class="toggle-direction-btn" onclick="toggleCard1Direction(event)">
-             <span class="btn-icon">🔄</span> Dir. Opposta
-           </button>`
-        : '';
-
-      card.innerHTML = `
-        <div class="stop-header">
-          <div class="stop-info">
-            <span class="stop-name">${station.stopName}</span>
-            <span class="stop-code">ID: ${station.stopId}</span>
-          </div>
-          <div class="stop-header-actions">
-            ${toggleBtnHtml}
-            <span class="stop-badge" style="border-color: rgba(255, 74, 74, 0.4); color: #ff4a4a;">Errore</span>
-          </div>
-        </div>
-        <div class="error-message">
-          <span class="no-departures-icon">⚠️</span>
-          <span>Impossibile caricare le partenze</span>
-          <span style="font-size: 0.75rem; opacity: 0.7;">${station.message || 'Errore di rete'}</span>
-        </div>
-      `;
-      dom.grid.appendChild(card);
-      return;
-    }
-
-    // Apply the live-only filter unless the Programmati toggle is on.
-    const allDepartures = station.departures || [];
-    const visibleDepartures = allDepartures.filter(dep => showScheduled || dep.status === 'realtime');
-    const hiddenScheduledCount = allDepartures.length - visibleDepartures.length;
-
-    // Build header actions with optional invert button
-    const departuresCount = visibleDepartures.length;
-    const badgeText = departuresCount === 1 ? '1 arrivo' : `${departuresCount} arrivi`;
-    
-    const toggleBtnHtml = cardConfig.isTogglable
-      ? `<button class="toggle-direction-btn" onclick="toggleCard1Direction(event)">
-           <span class="btn-icon">🔄</span> Dir. Opposta
-         </button>`
-      : '';
-
-    let departuresHtml = '';
-    
-    if (departuresCount === 0) {
-      // Empty state inside card. When we're hiding scheduled-only departures,
-      // point the user at the Programmati toggle instead of implying no service.
-      const emptyHint = (!showScheduled && hiddenScheduledCount > 0)
-        ? 'Nessun arrivo in tempo reale · attiva <strong>Programmati</strong> per gli orari'
-        : 'Verifica gli orari più tardi';
-      departuresHtml = `
-        <div class="no-departures">
-          <span class="no-departures-icon">⏳</span>
-          <p>Nessun bus o tram in arrivo</p>
-          <span style="font-size: 0.8rem;">${emptyHint}</span>
-        </div>
-      `;
-    } else {
-      // Loop and build departure rows
-      departuresHtml = `
-        <div class="departures-list">
-          ${visibleDepartures.map(dep => {
-            const isLive = dep.status === 'realtime';
-            
-            // Neon green styling for live GPS data, muted amber/gray for timetable estimate
-            const timeClass = isLive ? 'realtime-depart' : 'scheduled-depart';
-            const badgeClass = isLive ? 'realtime-badge' : 'scheduled-badge';
-            const badgeLabel = isLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
-            
-            // Custom line styling if provided by API, otherwise default grey
-            const lineStyle = dep.lineColor 
-              ? `background-color: ${dep.lineColor}; color: ${dep.lineTextColor || '#ffffff'}`
-              : '';
-
-            let animationIndicator = '';
-            if (dep.minutesRemaining === 1) {
-              animationIndicator = getRunnerSvg();
-            } else if (dep.minutesRemaining === 0) {
-              animationIndicator = getPartingBusSvg();
-            }
-
-            let delayBadge = '';
-            if (dep.delayMin !== undefined && dep.delayMin !== null) {
-              if (dep.delayMin > 0) {
-                delayBadge = `<span class="delay-badge delay-late">+${dep.delayMin}m</span>`;
-              } else if (dep.delayMin < 0) {
-                delayBadge = `<span class="delay-badge delay-early">-${Math.abs(dep.delayMin)}m</span>`;
-              } else {
-                delayBadge = `<span class="delay-badge delay-ontime">in orario</span>`;
-              }
-            }
-
-            return `
-              <div class="departure-row">
-                <div class="line-identifier" style="${lineStyle}">
-                  ${dep.line}
-                </div>
-                <div class="route-details">
-                  <span class="route-direction"><span class="dir-prefix">dir.</span>${dep.direction}</span>
-                  <span class="route-time-scheduled">
-                    Orario: <strong>${dep.time}</strong>
-                    <span class="status-badge ${badgeClass}">${badgeLabel}</span>
-                    ${delayBadge}
-                  </span>
-                </div>
-                <div class="arrival-countdown">
-                  <div class="animation-container">
-                    ${animationIndicator}
-                  </div>
-                  <span class="arrival-minutes ${timeClass}">
-                    ${dep.minutesRemaining}
-                  </span>
-                  <span class="arrival-unit">min</span>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `;
-    }
-
-    // Combine Header and Body inside the card
-    card.innerHTML = `
-      <div class="stop-header">
-        <div class="stop-info">
-          <span class="stop-name">${station.stopName}</span>
-          <span class="stop-code">ID: ${station.stopId}</span>
-        </div>
-        <div class="stop-header-actions">
-          ${toggleBtnHtml}
-          <span class="stop-badge">${badgeText}</span>
-        </div>
-      </div>
-      ${departuresHtml}
-    `;
-
-    dom.grid.appendChild(card);
+    dom.grid.appendChild(buildStationCard(station, {
+      cardId: `card-${displayIndex}`,
+      showScheduled,
+      toggleBtnHtml: cardConfig.isTogglable ? TOGGLE_BTN_HTML : ''
+    }));
   });
 }
 
@@ -593,7 +821,7 @@ function renderMetroView(stations) {
   }
   
   const statusLabel = nextIsLive ? '<span class="pulse-dot"></span>LIVE' : 'ORARIO';
-  metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span>`;
+  metroNextScheduled.innerHTML = `Orario tabella: <strong>${nextTrain.time}</strong> <span class="status-badge ${nextIsLive ? 'realtime-badge' : 'scheduled-badge'}" style="margin-left: 6px;">${statusLabel}</span> ${walkBadgeHtml(nextTrain, metroStation.stopId)}`;
 
   // Update next train animation container if rushed or parting
   const metroAnimContainer = document.getElementById('metro-animation-container');
@@ -654,6 +882,7 @@ function renderMetroView(stations) {
               Orario: <strong>${dep.time}</strong>
               <span class="status-badge ${badgeClass}" style="margin-left: 6px; font-size: 0.6rem;">${badgeLabel}</span>
               ${delayBadge}
+              ${walkBadgeHtml(dep, metroStation.stopId)}
             </span>
             <div style="display: flex; align-items: center; gap: 4px;">
               <div class="animation-container" style="transform: scale(0.85);">
@@ -860,9 +1089,10 @@ function toggleScheduledLine() {
 /**
  * TAB 4: Renders the "Linea Live" timeline view.
  * A SINGLE horizontal rail holding the same buses as the ATAC Lens (preferred
- * lines + the Carlo Felice hub). The 📍 endpoint (right) = arriving now; the
- * left edge = 60 min out. Each bus is the animated bus icon driving on the line;
- * live ones drive (green), scheduled ones are parked (grey). Next one emphasised.
+ * lines + hub stops). The 📍 endpoint (right) = arriving now; the left edge =
+ * LINE_SCALE_MIN (20) minutes out; buses further away are not drawn. Each bus
+ * is the animated bus icon driving on the line; live ones drive (green),
+ * scheduled ones are parked (grey). Next one emphasised.
  */
 function renderLineView(stations) {
   const container = document.getElementById('line-list');
@@ -877,19 +1107,22 @@ function renderLineView(stations) {
   const checkbox = document.getElementById('line-show-scheduled');
   const showScheduled = checkbox ? checkbox.checked : false;
 
-  const SCALE_MIN = 60; // left edge = 60 min out; right edge (📍) = arriving now
+  const SCALE_MIN = LINE_SCALE_MIN; // left edge = 20 min out; right edge (📍) = arriving now
 
-  // Same selection as the ATAC Lens: preferred lines + the Carlo Felice hub.
-  const importantLines = ['81', '85', '87', '360'];
+  // Same selection as the ATAC Lens: preferred lines + hub stops (+ night buses).
+  const importantLines = getLensLines();
+  const hubStopIds = getHubStopIds();
+  const nightIncluded = showNightBuses();
   let buses = [];
   stations.forEach(station => {
     if (!station || station.status === 'error' || !station.departures) return;
     station.departures.forEach(dep => {
       const isImportant = importantLines.includes(dep.line);
-      const isHub = String(station.stopId) === '72100' || String(station.stopId) === '81993';
-      const isNight = isNightLine(dep.line); // include night buses so the line isn't empty overnight
+      const isHub = hubStopIds.includes(String(station.stopId));
+      const isNight = nightIncluded && isNightLine(dep.line); // night buses keep the line alive overnight
       if (!(isImportant || isHub || isNight)) return;
       if (!showScheduled && dep.status !== 'realtime') return;
+      if (dep.minutesRemaining > SCALE_MIN) return; // outside the 20-minute window
       buses.push({
         line: dep.line,
         direction: dep.direction,
@@ -910,9 +1143,9 @@ function renderLineView(stations) {
     container.innerHTML = `
       <div class="line-empty-full">
         <span class="no-departures-icon">📡</span>
-        <p>Nessun bus importante in arrivo</p>
+        <p>Nessun bus in arrivo nei prossimi ${SCALE_MIN} minuti</p>
         <span style="font-size: 0.8rem;">${showScheduled
-          ? 'Linee monitorate: 81, 85, 87, 360 + nodo Carlo Felice'
+          ? `Linee monitorate: ${escapeHtml(importantLines.join(', '))} + fermate hub`
           : 'Attiva Programmati per vedere anche gli orari'}</span>
       </div>`;
     return;
@@ -957,13 +1190,335 @@ function renderLineView(stations) {
   `;
 }
 
+// ---------------------------------------------------------------------------
+// Settings panel (⚙️): pick your own stops/directions/lines, share config links
+// ---------------------------------------------------------------------------
+let editingConfig = null;     // working copy bound to the open modal
+let stopSearchResults = [];   // last /api/stops results shown in the dropdown
+let stopSearchTimer = null;
+
+window.openSettings = function () {
+  editingConfig = buildEditingConfig();
+  renderSettingsStops();
+
+  const linesInput = document.getElementById('settings-lines');
+  if (linesInput) linesInput.value = editingConfig.lines.join(', ');
+  const nightInput = document.getElementById('settings-night');
+  if (nightInput) nightInput.checked = editingConfig.showNight !== false;
+  const search = document.getElementById('stop-search');
+  if (search) search.value = '';
+  renderStopSearchResults([]);
+
+  document.getElementById('settings-overlay').classList.add('open');
+};
+
+window.closeSettings = function () {
+  document.getElementById('settings-overlay').classList.remove('open');
+  editingConfig = null;
+};
+
+function buildEditingConfig() {
+  if (userConfig) {
+    const copy = sanitizeConfig(JSON.parse(JSON.stringify(userConfig))) || { stops: [], lines: [], showNight: true };
+    return {
+      stops: copy.stops.length ? copy.stops : defaultStopsForEditing(),
+      lines: copy.lines.length ? copy.lines : DEFAULTS.LENS_LINES.slice(),
+      showNight: copy.showNight !== false
+    };
+  }
+  return { stops: defaultStopsForEditing(), lines: DEFAULTS.LENS_LINES.slice(), showNight: true };
+}
+
+/** Prefills the editor with the server's default stops (names from the last fetch). */
+function defaultStopsForEditing() {
+  if (!Array.isArray(lastTransitData)) return [];
+  return lastTransitData.map(station => ({
+    id: String(station.stopId),
+    name: station.stopName || '',
+    hub: DEFAULTS.HUB_STOPS.includes(String(station.stopId)),
+    dir: '',
+    walk: 0
+  }));
+}
+
+function renderSettingsStops() {
+  const wrap = document.getElementById('settings-stops');
+  if (!wrap || !editingConfig) return;
+
+  if (editingConfig.stops.length === 0) {
+    wrap.innerHTML = `<p class="settings-empty">Nessuna fermata configurata: cercane una qui sopra per iniziare.</p>`;
+    return;
+  }
+
+  wrap.innerHTML = editingConfig.stops.map((s, i) => `
+    <div class="settings-stop-row">
+      <div class="settings-stop-main">
+        <span class="settings-stop-code">${escapeHtml(s.id)}</span>
+        <span class="settings-stop-name">${escapeHtml(s.name || 'Fermata ' + s.id)}</span>
+        <button class="settings-remove-btn" onclick="removeSettingsStop(${i})" title="Rimuovi fermata">✕</button>
+      </div>
+      <div class="settings-stop-opts">
+        <label class="settings-opt" title="Mostra tutte le linee di questa fermata nell'ATAC Lens e nella Linea Live">
+          <input type="checkbox" ${s.hub ? 'checked' : ''} onchange="updateSettingsStop(${i}, 'hub', this.checked)"> Hub (tutte le linee)
+        </label>
+        <label class="settings-opt">dir. contiene
+          <input type="text" value="${escapeHtml(s.dir)}" maxlength="40" placeholder="es. Termini"
+            oninput="updateSettingsStop(${i}, 'dir', this.value)">
+        </label>
+        <label class="settings-opt">🚶
+          <input type="number" value="${s.walk || ''}" min="0" max="120" placeholder="0"
+            oninput="updateSettingsStop(${i}, 'walk', this.value)"> min a piedi
+        </label>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.updateSettingsStop = function (index, field, value) {
+  if (!editingConfig || !editingConfig.stops[index]) return;
+  if (field === 'hub') {
+    editingConfig.stops[index].hub = !!value;
+  } else if (field === 'dir') {
+    editingConfig.stops[index].dir = String(value).slice(0, 40);
+  } else if (field === 'walk') {
+    const walk = parseInt(value, 10);
+    editingConfig.stops[index].walk = (!isNaN(walk) && walk > 0 && walk <= 120) ? walk : 0;
+  }
+};
+
+window.removeSettingsStop = function (index) {
+  if (!editingConfig) return;
+  editingConfig.stops.splice(index, 1);
+  renderSettingsStops();
+};
+
+window.onStopSearchInput = function () {
+  const input = document.getElementById('stop-search');
+  if (!input) return;
+  const query = input.value.trim();
+  if (stopSearchTimer) clearTimeout(stopSearchTimer);
+  if (query.length < 2) {
+    renderStopSearchResults([]);
+    return;
+  }
+  stopSearchTimer = setTimeout(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/stops?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      renderStopSearchResults(Array.isArray(data.stops) ? data.stops : [], query, !response.ok);
+    } catch (err) {
+      renderStopSearchResults([], query, true);
+    }
+  }, 300);
+};
+
+function renderStopSearchResults(results, query, searchUnavailable) {
+  const box = document.getElementById('stop-search-results');
+  if (!box) return;
+  stopSearchResults = results;
+
+  let html = results.map((s, i) => `
+    <button class="stop-search-item" onclick="addSearchResult(${i})">
+      <span class="stop-search-code">${escapeHtml(s.code || s.id)}</span>
+      <span class="stop-search-name">${escapeHtml(s.name)}</span>
+    </button>
+  `).join('');
+
+  // Manual fallback: a plausible code can always be added as typed (the regex
+  // also guarantees the value is safe to inline in the onclick handler).
+  if (query && /^[A-Za-z0-9_-]{3,24}$/.test(query)) {
+    html += `
+      <button class="stop-search-item manual" onclick="addManualStop('${query}')">
+        ➕ Aggiungi il codice "${query}"${searchUnavailable ? ' (ricerca non disponibile)' : ''}
+      </button>`;
+  }
+
+  box.innerHTML = html;
+  box.style.display = html ? '' : 'none';
+}
+
+window.addSearchResult = function (index) {
+  const s = stopSearchResults[index];
+  if (!s) return;
+  addStopToEditing({ id: String(s.code || s.id), name: s.name || '' });
+};
+
+window.addManualStop = function (code) {
+  addStopToEditing({ id: String(code), name: '' });
+};
+
+function addStopToEditing(stop) {
+  if (!editingConfig) return;
+  if (editingConfig.stops.some(s => s.id === stop.id)) return;
+  if (editingConfig.stops.length >= 10) {
+    alert('Massimo 10 fermate per board.');
+    return;
+  }
+  editingConfig.stops.push({ id: stop.id, name: stop.name, hub: false, dir: '', walk: 0 });
+  renderSettingsStops();
+  const input = document.getElementById('stop-search');
+  if (input) input.value = '';
+  renderStopSearchResults([]);
+}
+
+/** Folds the free-form inputs (lines, night toggle) into the working copy. */
+function collectEditingConfig() {
+  const linesInput = document.getElementById('settings-lines');
+  const nightInput = document.getElementById('settings-night');
+  return sanitizeConfig({
+    ...editingConfig,
+    lines: (linesInput ? linesInput.value : '').split(',').map(s => s.trim()).filter(Boolean),
+    showNight: nightInput ? nightInput.checked : true
+  });
+}
+
+window.saveSettings = function () {
+  if (!editingConfig) return;
+  persistUserConfig(collectEditingConfig());
+  closeSettings();
+  onConfigChanged();
+};
+
+window.resetSettings = function () {
+  persistUserConfig(null);
+  closeSettings();
+  onConfigChanged();
+};
+
+window.copyConfigLink = function () {
+  if (!editingConfig) return;
+  const cfg = collectEditingConfig();
+  if (!cfg) return;
+
+  const json = JSON.stringify(cfg);
+  const b64 = btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const link = `${window.location.origin}${window.location.pathname}#cfg=${b64}`;
+
+  const btn = document.getElementById('copy-link-btn');
+  const confirmCopied = () => {
+    if (!btn) return;
+    btn.textContent = '✅ Link copiato!';
+    setTimeout(() => { btn.textContent = '🔗 Copia link config'; }, 2000);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(confirmCopied).catch(() => window.prompt('Copia il link:', link));
+  } else {
+    window.prompt('Copia il link:', link);
+  }
+};
+
+/** Re-fetches and re-renders everything after a config change. */
+function onConfigChanged() {
+  applyConfigSideEffects();
+  lastTransitData = null;
+  fetchTransitData();
+  fetchAlerts();
+  startRefreshTimer();
+}
+
+// ---------------------------------------------------------------------------
+// ATAC service alerts (strikes, detours, closures) from /api/alerts
+// ---------------------------------------------------------------------------
+let alertsExpanded = false;
+let lastAlerts = [];
+
+async function fetchAlerts() {
+  const banner = document.getElementById('alerts-banner');
+  if (!banner) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/alerts`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    lastAlerts = Array.isArray(data.alerts) ? data.alerts : [];
+    renderAlerts();
+  } catch (err) {
+    console.warn('[Alerts] Aggiornamento avvisi fallito:', err);
+    banner.style.display = 'none';
+  }
+}
+
+/** Lines worth alerting on: preferred lines + everything in the last fetch. */
+function relevantLineSet() {
+  const set = new Set(getLensLines().map(line => String(line).toUpperCase()));
+  if (Array.isArray(lastTransitData)) {
+    lastTransitData.forEach(station => {
+      ((station && station.departures) || []).forEach(dep => set.add(String(dep.line).toUpperCase()));
+    });
+  }
+  return set;
+}
+
+function relevantStopIdSet() {
+  const ids = customStopIds();
+  if (ids) return new Set(ids);
+  if (Array.isArray(lastTransitData)) {
+    return new Set(lastTransitData.map(station => String(station && station.stopId)));
+  }
+  return new Set();
+}
+
+function renderAlerts() {
+  const banner = document.getElementById('alerts-banner');
+  if (!banner) return;
+
+  const myLines = relevantLineSet();
+  const myStops = relevantStopIdSet();
+
+  // Keep alerts touching our lines/stops, plus citywide ones (e.g. strikes).
+  const relevant = lastAlerts.filter(alert => {
+    const routes = (alert.routes || []).map(r => String(r).toUpperCase());
+    const citywide = routes.length === 0 && (!alert.stopIds || alert.stopIds.length === 0);
+    return citywide
+      || routes.some(r => myLines.has(r))
+      || (alert.stopIds || []).some(s => myStops.has(String(s)));
+  }).slice(0, 6);
+
+  if (relevant.length === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  const itemsHtml = relevant.map(alert => {
+    const badges = (alert.routes || []).slice(0, 6)
+      .map(r => `<span class="alert-route">${escapeHtml(r)}</span>`).join('');
+    const description = (alert.description && alert.description !== alert.header)
+      ? `<div class="alert-desc">${escapeHtml(String(alert.description).slice(0, 400))}</div>`
+      : '';
+    return `
+      <div class="alert-item">
+        <div class="alert-item-head">${badges}<span class="alert-header-text">${escapeHtml(alert.header || 'Avviso ATAC')}</span></div>
+        ${description}
+      </div>`;
+  }).join('');
+
+  banner.style.display = '';
+  banner.innerHTML = `
+    <button class="alerts-summary" onclick="toggleAlerts()">
+      <span class="alerts-icon">⚠️</span>
+      <span class="alerts-count">${relevant.length === 1 ? '1 avviso di servizio ATAC' : `${relevant.length} avvisi di servizio ATAC`}</span>
+      <span class="alerts-caret">${alertsExpanded ? '▲' : '▼'}</span>
+    </button>
+    <div class="alerts-list" style="display: ${alertsExpanded ? 'block' : 'none'};">${itemsHtml}</div>
+  `;
+}
+
+window.toggleAlerts = function () {
+  alertsExpanded = !alertsExpanded;
+  renderAlerts();
+};
+
 // Kickstart dashboard systems on page load
 window.addEventListener('DOMContentLoaded', () => {
   initClock();
+  applyConfigSideEffects(); // metro tab visibility + subheaders follow the config
   fetchTransitData();
   fetchWeather(); // Fetch weather on load
+  fetchAlerts();
   startRefreshTimer();
-  
+
   // Fetch weather every 5 minutes (300,000 ms)
   setInterval(fetchWeather, 300000);
+  setInterval(fetchAlerts, CONFIG.ALERTS_REFRESH_SEC * 1000);
 });

@@ -4,11 +4,16 @@
  * Bypasses Transitland and reads the source feeds published by Roma Mobilita:
  *   - Static schedule (zip):   rome_static_gtfs.zip
  *   - Realtime trip updates:   rome_rtgtfs_trip_updates_feed.pb  (GTFS-RT protobuf)
+ *   - Service alerts:          rome_rtgtfs_service_alerts_feed.pb (GTFS-RT protobuf)
  *
- * Scoped on purpose: we only ever keep schedule rows for the handful of stop IDs
- * the dashboard cares about, so memory stays small even though Rome's full
- * stop_times.txt is huge. The static schedule is parsed once per service day and
- * cached; realtime is fetched on a short TTL and merged on top.
+ * Scoped on purpose: we only ever keep schedule rows for the stop IDs that have
+ * been requested (the configured defaults plus any custom user boards), so
+ * memory stays small even though Rome's full stop_times.txt is huge. The static
+ * schedule is parsed once per service day and cached; when a never-seen stop
+ * code shows up the schedule is rebuilt around the union of all known codes
+ * (throttled, since a rebuild re-downloads the zip). Realtime is fetched on a
+ * short TTL and merged on top. stops.txt is also kept (compact form) to power
+ * the /api/stops name/code search used by the settings panel.
  *
  * Output contract matches the old Transitland path exactly, so the frontend is
  * untouched. Each stop returns:
@@ -39,9 +44,12 @@ if (typeof globalThis.fetch === 'function') {
 const FEED_BASE = 'https://romamobilita.it/wp-content/uploads/shared/';
 const STATIC_URL = FEED_BASE + 'rome_static_gtfs.zip';
 const TRIP_UPDATES_URL = FEED_BASE + 'rome_rtgtfs_trip_updates_feed.pb';
+const SERVICE_ALERTS_URL = FEED_BASE + 'rome_rtgtfs_service_alerts_feed.pb';
 
 // How long a realtime fetch is reused before refetching (ms).
 const RT_TTL_MS = 20 * 1000;
+// How long decoded service alerts are reused before refetching (ms).
+const ALERTS_TTL_MS = 60 * 1000;
 // Look-ahead window (minutes): surface every departure up to this far out so the
 // Commute Radar can show ~the next hour of buses, not just imminent arrivals.
 // Override with LOOKAHEAD_MIN in .env. When a stop has fewer than MIN_DEPARTURES
@@ -54,10 +62,25 @@ const LOOKAHEAD_MIN = (function () {
 const MIN_DEPARTURES = 5;
 
 // ---- In-memory caches -------------------------------------------------------
-let staticCache = null;       // { serviceDate, builtAt, stopNames, byStop }
+let staticCache = null;       // { serviceDate, builtAt, stopNames, byStop, requestedCodes, allStops, routesById }
 let staticBuildPromise = null; // de-dupes concurrent rebuilds
 let rtCache = null;           // { fetchedAt, byTripStop }
 let rtFetchPromise = null;
+let alertsCache = null;       // { fetchedAt, payload }
+let alertsFetchPromise = null;
+
+// Union of every stop code ever requested (configured defaults plus custom user
+// boards). The static schedule is always built around this whole set, so
+// different clients' stop selections share one cache instead of evicting each
+// other. Codes that don't exist in the feed stay registered (resolving to no
+// rows), which prevents bad input from forcing a rebuild on every request.
+const unionCodes = {};
+let lastBuildStartedAt = 0;
+// A never-seen code forces a full rebuild (fresh zip download), so throttle
+// rebuilds; uncovered stops report a "loading" error until the next one.
+const REBUILD_MIN_INTERVAL_MS = 20 * 1000;
+// Hard cap on distinct stop codes tracked per server (memory + abuse guard).
+const MAX_TRACKED_STOPS = 60;
 
 // ---- Small utilities --------------------------------------------------------
 
@@ -119,6 +142,15 @@ function secondsToHHMM(sec) {
   const m = Math.floor((wrapped % 3600) / 60);
   const pad = function (n) { return n < 10 ? '0' + n : String(n); };
   return pad(h) + ':' + pad(m);
+}
+
+/** Lowercases and strips accents so "Università" matches "universita". */
+function normalizeForSearch(s) {
+  let t = String(s === null || s === undefined ? '' : s).toLowerCase();
+  try {
+    t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  } catch (e) { /* older runtimes without String#normalize keep the raw text */ }
+  return t;
 }
 
 /** Formats an absolute epoch (seconds) as the Europe/Rome wall-clock "HH:MM". */
@@ -346,20 +378,38 @@ async function buildStaticSchedule(stopIds, rome) {
 
   const stopNames = {};        // stop_id -> stop_name
   const targetStopIds = {};    // resolved stop_id -> requested code (for output key)
+  const allStops = [];         // compact citywide list powering /api/stops search
   if (small['stops.txt']) {
     const parsed = parseCsv(small['stops.txt']);
     const idx = parsed.idx;
     const hasCode = idx['stop_code'] !== undefined;
+    const hasLat = idx['stop_lat'] !== undefined;
+    const hasLon = idx['stop_lon'] !== undefined;
+    const hasLocType = idx['location_type'] !== undefined;
     for (let i = 0; i < parsed.rows.length; i++) {
       const r = parsed.rows[i];
       const stopId = r[idx['stop_id']];
       const stopCode = hasCode ? r[idx['stop_code']] : undefined;
+      const stopName = r[idx['stop_name']];
       if (wantedRaw[stopId]) {
         targetStopIds[stopId] = stopId;
-        stopNames[stopId] = r[idx['stop_name']];
+        stopNames[stopId] = stopName;
       } else if (stopCode && wantedRaw[stopCode]) {
         targetStopIds[stopId] = stopCode; // output keyed by the code the user asked for
-        stopNames[stopId] = r[idx['stop_name']];
+        stopNames[stopId] = stopName;
+      }
+
+      // Keep boardable stops (location_type empty/0) for the search index.
+      const locType = hasLocType ? r[idx['location_type']] : '';
+      if (locType === '' || locType === '0' || locType === undefined) {
+        allStops.push({
+          id: stopId,
+          code: stopCode || '',
+          name: stopName || '',
+          lat: hasLat ? parseFloat(r[idx['stop_lat']]) : null,
+          lon: hasLon ? parseFloat(r[idx['stop_lon']]) : null,
+          search: normalizeForSearch(stopName)
+        });
       }
     }
   }
@@ -428,11 +478,19 @@ async function buildStaticSchedule(stopIds, rome) {
     });
   });
 
+  // Record exactly which requested codes this build covered, so callers can
+  // tell "stop has no service" apart from "stop not built into the cache yet".
+  const requestedCodes = {};
+  for (let i = 0; i < stopIds.length; i++) requestedCodes[String(stopIds[i]).trim()] = true;
+
   return {
     serviceDate: rome.dateNum,
     builtAt: Date.now(),
     stopNames: stopNames,
     targetStopIds: targetStopIds,
+    requestedCodes: requestedCodes,
+    allStops: allStops,
+    routesById: routesById,
     activeServicesCount: Object.keys(activeServices).length,
     activeTripsCount: Object.keys(tripsById).length,
     stopsFileRows: small['stops.txt'] ? true : false,
@@ -447,25 +505,76 @@ function normalizeColor(raw) {
   return c.charAt(0) === '#' ? c : '#' + c;
 }
 
-/** Returns a cached static schedule for today, rebuilding when the day rolls. */
-async function getStaticSchedule(stopIds, rome) {
-  if (staticCache && staticCache.serviceDate === rome.dateNum) {
-    return staticCache;
+/**
+ * Registers requested codes into the union the schedule cache is built around.
+ * Returns the codes rejected because the server-wide cap was reached.
+ */
+function registerStopCodes(stopIds) {
+  const rejected = [];
+  for (let i = 0; i < stopIds.length; i++) {
+    const code = String(stopIds[i]).trim();
+    if (!code) continue;
+    if (unionCodes[code]) continue;
+    if (Object.keys(unionCodes).length >= MAX_TRACKED_STOPS) {
+      rejected.push(code);
+      continue;
+    }
+    unionCodes[code] = true;
   }
-  if (staticBuildPromise) {
+  return rejected;
+}
+
+/** True when the cache build included this requested code. */
+function cacheCovers(cache, code) {
+  return !!(cache && cache.requestedCodes && cache.requestedCodes[String(code).trim()]);
+}
+
+/**
+ * Returns a cached static schedule for today, rebuilding when the day rolls or
+ * when never-seen (registered) stop codes show up. Rebuilds always use the full
+ * union of known codes, and are throttled because each one re-downloads the
+ * static zip; while throttled, the fresh-today cache is served and uncovered
+ * stops are reported as still loading by the caller.
+ */
+async function getStaticSchedule(stopIds, rome) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const freshToday = staticCache && staticCache.serviceDate === rome.dateNum;
+
+    if (freshToday) {
+      let covered = true;
+      for (let i = 0; i < stopIds.length; i++) {
+        const code = String(stopIds[i]).trim();
+        if (unionCodes[code] && !cacheCovers(staticCache, code)) { covered = false; break; }
+      }
+      if (covered) return staticCache;
+    }
+
+    if (staticBuildPromise) {
+      // Another request is already building; wait and re-check coverage.
+      try { await staticBuildPromise; } catch (e) { /* re-evaluated below */ }
+      continue;
+    }
+
+    if (freshToday && (Date.now() - lastBuildStartedAt) < REBUILD_MIN_INTERVAL_MS) {
+      return staticCache; // throttled: new codes get picked up by a later refresh
+    }
+
+    lastBuildStartedAt = Date.now();
+    staticBuildPromise = buildStaticSchedule(Object.keys(unionCodes), rome)
+      .then(function (built) {
+        staticCache = built;
+        staticBuildPromise = null;
+        return built;
+      })
+      .catch(function (err) {
+        staticBuildPromise = null;
+        throw err;
+      });
     return staticBuildPromise;
   }
-  staticBuildPromise = buildStaticSchedule(stopIds, rome)
-    .then(function (built) {
-      staticCache = built;
-      staticBuildPromise = null;
-      return built;
-    })
-    .catch(function (err) {
-      staticBuildPromise = null;
-      throw err;
-    });
-  return staticBuildPromise;
+
+  if (staticCache && staticCache.serviceDate === rome.dateNum) return staticCache;
+  throw new Error('Static schedule rebuild did not converge');
 }
 
 // ---- Realtime (trip updates) ------------------------------------------------
@@ -535,6 +644,11 @@ async function getRealtime() {
 async function getDepartures(stopIds) {
   const rome = romeNow();
 
+  // Track which requested codes could not be registered (server-wide cap).
+  const rejected = {};
+  const rejectedList = registerStopCodes(stopIds);
+  for (let i = 0; i < rejectedList.length; i++) rejected[rejectedList[i]] = true;
+
   let schedule;
   try {
     schedule = await getStaticSchedule(stopIds, rome);
@@ -557,6 +671,18 @@ async function getDepartures(stopIds) {
 
   return stopIds.map(function (rawId) {
     const code = String(rawId).trim();
+
+    // Distinguish the three "no data" cases so custom boards get useful feedback.
+    if (rejected[code]) {
+      return { stopId: rawId, stopName: 'Stop ' + rawId, departures: [], status: 'error', message: 'Limite fermate del server raggiunto (' + MAX_TRACKED_STOPS + '): fermata non aggiunta.' };
+    }
+    if (!cacheCovers(schedule, code)) {
+      return { stopId: rawId, stopName: 'Stop ' + rawId, departures: [], status: 'error', message: 'Fermata in caricamento: orari disponibili al prossimo aggiornamento.' };
+    }
+    if (!isResolved(schedule, code)) {
+      return { stopId: rawId, stopName: 'Stop ' + rawId, departures: [], status: 'error', message: 'Codice fermata "' + code + '" non trovato nel feed GTFS di Roma.' };
+    }
+
     // Find the resolved stop_id(s) whose output key equals this requested code.
     const stopName = resolveStopName(schedule, code);
     const rows = schedule.byStop[code] || [];
@@ -629,6 +755,7 @@ function resolveStopName(schedule, code) {
 /** Diagnostic snapshot used by /api/debug. */
 async function getDiagnostics(stopIds) {
   const rome = romeNow();
+  registerStopCodes(stopIds);
   const out = { source: 'romamobilita-direct', serviceDate: rome.dateNum, romeSecondsOfDay: rome.secondsOfDay, stops: [] };
 
   let schedule;
@@ -711,15 +838,180 @@ function isResolved(schedule, code) {
   return false;
 }
 
+// ---- Stop search (settings panel) --------------------------------------------
+
+/**
+ * Searches Rome's stops by code prefix or name substring (accent-insensitive).
+ * Powers GET /api/stops so users can find their own stop codes when building a
+ * custom board. Requires the static schedule (builds it on first use).
+ * Returns [ { id, code, name, lat, lon } ].
+ */
+async function searchStops(query, limit) {
+  const rome = romeNow();
+  const schedule = await getStaticSchedule([], rome);
+  const all = schedule.allStops || [];
+  const q = normalizeForSearch(query).trim();
+  if (!q) return [];
+  const max = (limit && limit > 0) ? limit : 12;
+
+  const codeMatches = [];
+  const nameMatches = [];
+  for (let i = 0; i < all.length; i++) {
+    const s = all[i];
+    const code = String(s.code || '').toLowerCase();
+    const id = String(s.id || '').toLowerCase();
+    if ((code && code.indexOf(q) === 0) || id.indexOf(q) === 0) {
+      codeMatches.push(s);
+      if (codeMatches.length >= max) break;
+    } else if (nameMatches.length < max && s.search.indexOf(q) !== -1) {
+      nameMatches.push(s);
+    }
+  }
+
+  return codeMatches.concat(nameMatches).slice(0, max).map(function (s) {
+    return { id: s.id, code: s.code, name: s.name, lat: s.lat, lon: s.lon };
+  });
+}
+
+// ---- Service alerts (GTFS-RT) -------------------------------------------------
+
+/** Converts protobufjs Long-or-number values to a plain number (or null). */
+function longToNum(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'object' && typeof v.toNumber === 'function') return v.toNumber();
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+/** Picks the Italian translation from a GTFS-RT TranslatedString (or the first). */
+function pickTranslation(ts) {
+  if (!ts || !ts.translation || ts.translation.length === 0) return '';
+  for (let i = 0; i < ts.translation.length; i++) {
+    const t = ts.translation[i];
+    if (t.language && String(t.language).toLowerCase().indexOf('it') === 0) {
+      return t.text || '';
+    }
+  }
+  return ts.translation[0].text || '';
+}
+
+/** Resolves a protobuf enum number back to its name (e.g. 6 -> "DETOUR"). */
+function enumName(enumObj, value) {
+  if (value === null || value === undefined) return null;
+  if (enumObj && typeof enumObj === 'object') {
+    for (const key in enumObj) {
+      if (enumObj[key] === value) return key;
+    }
+  }
+  return String(value);
+}
+
+/** True when the alert is active now (no periods means always active). */
+function isAlertActive(alert, nowSec) {
+  const periods = alert.activePeriod || [];
+  if (periods.length === 0) return true;
+  for (let i = 0; i < periods.length; i++) {
+    const start = longToNum(periods[i].start);
+    const end = longToNum(periods[i].end);
+    if ((start === null || start === 0 || nowSec >= start) &&
+        (end === null || end === 0 || nowSec <= end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Fetches and decodes Roma Mobilita's GTFS-RT service alerts feed, mapping
+ * route_ids to friendly line names via the static schedule when available.
+ * Returns { status, fetchedAt, count, alerts: [ { id, header, description,
+ * url, cause, effect, routes, stopIds, activeUntil } ] }. Cached briefly.
+ */
+async function getAlerts() {
+  if (alertsCache && (Date.now() - alertsCache.fetchedAt) < ALERTS_TTL_MS) {
+    return alertsCache.payload;
+  }
+  if (alertsFetchPromise) return alertsFetchPromise;
+
+  alertsFetchPromise = (async function () {
+    const buffer = await downloadBuffer(SERVICE_ALERTS_URL);
+    const feed = GtfsRt.transit_realtime.FeedMessage.decode(buffer);
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Best-effort line naming: use the static cache when it has been built.
+    const routesById = (staticCache && staticCache.routesById) || {};
+    const AlertProto = GtfsRt.transit_realtime.Alert;
+
+    const alerts = [];
+    const entities = feed.entity || [];
+    for (let i = 0; i < entities.length; i++) {
+      const alert = entities[i].alert;
+      if (!alert) continue;
+      if (!isAlertActive(alert, nowSec)) continue;
+
+      const routes = {};
+      const stops = {};
+      const informed = alert.informedEntity || [];
+      for (let j = 0; j < informed.length; j++) {
+        const ie = informed[j];
+        if (ie.routeId) {
+          const route = routesById[ie.routeId];
+          routes[(route && route.shortName) || ie.routeId] = true;
+        }
+        if (ie.stopId) stops[ie.stopId] = true;
+      }
+
+      // Latest end across active periods (null = open-ended).
+      let activeUntil = null;
+      const periods = alert.activePeriod || [];
+      for (let j = 0; j < periods.length; j++) {
+        const end = longToNum(periods[j].end);
+        if (end && (activeUntil === null || end > activeUntil)) activeUntil = end;
+      }
+
+      alerts.push({
+        id: entities[i].id || String(i),
+        header: pickTranslation(alert.headerText),
+        description: pickTranslation(alert.descriptionText),
+        url: pickTranslation(alert.url),
+        cause: enumName(AlertProto.Cause, alert.cause),
+        effect: enumName(AlertProto.Effect, alert.effect),
+        routes: Object.keys(routes),
+        stopIds: Object.keys(stops),
+        activeUntil: activeUntil
+      });
+    }
+
+    const payload = {
+      status: 'success',
+      fetchedAt: new Date().toISOString(),
+      count: alerts.length,
+      alerts: alerts
+    };
+    alertsCache = { fetchedAt: Date.now(), payload: payload };
+    alertsFetchPromise = null;
+    return payload;
+  })().catch(function (err) {
+    alertsFetchPromise = null;
+    throw err;
+  });
+
+  return alertsFetchPromise;
+}
+
 module.exports = {
   getDepartures: getDepartures,
   getDiagnostics: getDiagnostics,
+  searchStops: searchStops,
+  getAlerts: getAlerts,
   // exported for unit checks
   _internals: {
     parseCsvLine: parseCsvLine,
     gtfsTimeToSeconds: gtfsTimeToSeconds,
     secondsToHHMM: secondsToHHMM,
     computeActiveServices: computeActiveServices,
-    romeNow: romeNow
+    romeNow: romeNow,
+    registerStopCodes: registerStopCodes,
+    normalizeForSearch: normalizeForSearch,
+    isAlertActive: isAlertActive
   }
 };
